@@ -6,6 +6,9 @@
 #include <inttypes.h>
 #include <assert.h>
 
+static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size;
+// typedef struct meta_data {} 
+
 /// m61_malloc(sz, file, line)
 ///    Return a pointer to `sz` bytes of newly-allocated dynamic memory.
 ///    The memory is not initialized. If `sz == 0`, then m61_malloc may
@@ -15,6 +18,16 @@
 void* m61_malloc(size_t sz, const char* file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
+    // Remove this comment later, the below line is to count calls.
+    ntotal++;
+    total_size+=sz;
+    nactive++;
+
+    // Checking to see if conditions are met
+    if (sz == 0){
+	nfail++;	
+    }
+
     return base_malloc(sz);
 }
 
@@ -28,6 +41,9 @@ void* m61_malloc(size_t sz, const char* file, int line) {
 void m61_free(void *ptr, const char *file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
+
+    // Remove this comment later, the below line is to decrease count of active allocs
+    nactive--;
     base_free(ptr);
 }
 
@@ -75,7 +91,14 @@ void* m61_calloc(size_t nmemb, size_t sz, const char* file, int line) {
 void m61_getstatistics(struct m61_statistics* stats) {
     // Stub: set all statistics to enormous numbers
     memset(stats, 255, sizeof(struct m61_statistics));
-    // Your code here.
+    	stats->nactive=nactive;
+    	stats->active_size=active_size;
+	stats->ntotal=ntotal;
+	stats->total_size=total_size;
+	stats->nfail=nfail;
+	stats->fail_size=fail_size;
+	//stats->heap_min=
+	//stats->heap_max=
 }
 
 
