@@ -1,0 +1,7 @@
+We should make tests 1-9 work first. It'spretty straight forward, I just did the first four. I'm going to add a couple more, but at stuck at work right now.
+
+I may change the fail_count calculation. At first I made it check if a  fail was because sz==0 (cause I saw the pset said something about that in the comments). But I'm going to change it so that fail_count is only incremented when malloc sees it's not a pointer that was inputed.Like.......
+
+if(! void *) or something like that
+
+After those test works, I'll create the struct we need. It's in there now, but I commented it out. I'll update you soon. 
