@@ -80,7 +80,16 @@ void m61_free(void *ptr, const char *file, int line) {
     // Your code here.
 
     // active_size isn't defined right, I just free 3x the amt of ptr size for now
+    // active_size-=sizeof(*ptr)*3;
+    /* New version of active_size, if fail, version above is good */
     active_size-=sizeof(*ptr)*3;
+// metadata *metadata1 = ((metadata*) ptr-1);	
+// active_size-=metadata1->block_size;
+    /* Just like in realloc, I checked size_allocation to know
+	how much mem to remove from active_size */
+    
+    	//size_t asize = (*(metadata*) ptr).block_size;
+	//size_t asize = (*(metadata*) ptr).block_size; active_size-=asize;
     nactive--;
     base_free(ptr);
 }
@@ -102,6 +111,7 @@ void* m61_realloc(void* ptr, size_t sz, const char* file, int line) {
         // To do that, we must figure out the size of allocation `ptr`.
         // Your code here (to fix test012).
 	
+	/* Casts ptr to Metadata structure type, and then checks block_size */
 	size_t asize = (*(metadata*) ptr).block_size;
 	if(asize<sz){
 		memcpy(new_ptr,ptr,asize);
