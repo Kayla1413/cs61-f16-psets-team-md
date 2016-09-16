@@ -4,7 +4,7 @@ YOU MUST FILL OUT THIS FILE BEFORE SUBMITTING!
 
 OTHER COLLABORATORS AND CITATIONS (if any):
 Don't include your partner.
-N/A
+N/A - No other collaborators other than my partner.
 
 
 NOTES FOR THE GRADER (if any):

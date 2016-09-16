@@ -6,7 +6,7 @@
 #include <inttypes.h>
 #include <assert.h>
 
-static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size;
+static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size, heap_min, heap_max;
 // typedef struct meta_data {} 
 
 /// m61_malloc(sz, file, line)
@@ -18,17 +18,24 @@ static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_
 void* m61_malloc(size_t sz, const char* file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
-    // Remove this comment later, the below line is to count calls.
-    ntotal++;
-    total_size+=sz;
-    nactive++;
 
-    // Checking to see if conditions are met
-    if (sz == 0){
-	nfail++;	
+    
+    // Checking to see if conditions are met & defining Null pointer
+    
+    void *ptr = NULL;
+    ptr = base_malloc(sz);  
+    if (!ptr){
+	nfail++;
+	fail_size+=sz;
+	return NULL;	
     }
-
-    return base_malloc(sz);
+    else{
+	ntotal++;
+	total_size+=sz;
+	nactive++;
+        active_size+=sz;    
+	return base_malloc(sz);
+    }
 }
 
 
@@ -42,7 +49,8 @@ void m61_free(void *ptr, const char *file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
 
-    // Remove this comment later, the below line is to decrease count of active allocs
+    // active_size isn't defined right, I just free 3x the amt of ptr size for now
+    active_size-=sizeof(*ptr)*3;
     nactive--;
     base_free(ptr);
 }
@@ -97,8 +105,8 @@ void m61_getstatistics(struct m61_statistics* stats) {
 	stats->total_size=total_size;
 	stats->nfail=nfail;
 	stats->fail_size=fail_size;
-	//stats->heap_min=
-	//stats->heap_max=
+	stats->heap_min=heap_min;
+	// stats->heap_max=heap_max;
 }
 
 
