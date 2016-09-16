@@ -7,7 +7,19 @@
 #include <assert.h>
 
 static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size, heap_min, heap_max;
-// typedef struct meta_data {} 
+
+/* per-allocation metadata */
+typedef struct {
+    size_t block_size;
+    /* payload */
+    const char* file;
+    int line;
+    /* padding */
+    	// Not Applicable Yet
+    /* Temp Address Holder */
+    char *address;
+} metadata;
+// metadata main_metadata; 
 
 /// m61_malloc(sz, file, line)
 ///    Return a pointer to `sz` bytes of newly-allocated dynamic memory.
@@ -19,21 +31,39 @@ void* m61_malloc(size_t sz, const char* file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
 
-    
+   
     // Checking to see if conditions are met & defining Null pointer
     
     void *ptr = NULL;
     ptr = base_malloc(sz);  
+    /* base malloc failed */
     if (!ptr){
 	nfail++;
 	fail_size+=sz;
 	return NULL;	
     }
     else{
+	/* get statistics */
 	ntotal++;
 	total_size+=sz;
 	nactive++;
         active_size+=sz;    
+	/* initialize metadata */
+	metadata *main_metadata;
+	main_metadata->block_size=sz;
+	main_metadata->file=file;
+	main_metadata->line=line;
+
+	/* setting up min heap stuff to check min address - doesn't work 
+		int ptr2 = base_malloc(sz);
+		int value = strcmp(&ptr2, main_metadata.address);
+		if(value < 0){
+			heap_min = (long long) &ptr2;
+		//memcpy(&heap_min, &ptr2, sizeof(unsigned long long );
+		}
+		main_metadata.address = &ptr2;
+		return ptr2;
+	*/
 	return base_malloc(sz);
     }
 }
@@ -71,6 +101,7 @@ void* m61_realloc(void* ptr, size_t sz, const char* file, int line) {
         // Copy the data from `ptr` into `new_ptr`.
         // To do that, we must figure out the size of allocation `ptr`.
         // Your code here (to fix test012).
+	memcpy(new_ptr, ptr, sz);
     }
     m61_free(ptr, file, line);
     return new_ptr;
