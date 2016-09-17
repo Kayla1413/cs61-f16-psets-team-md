@@ -8,7 +8,9 @@
 
 // push on 9-17 to bry
 
-static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size, heap_min, heap_max;
+static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size;
+char* heap_min, heap_max;
+
 
 /* per-allocation metadata */
 typedef struct {
@@ -137,6 +139,10 @@ void* m61_realloc(void* ptr, size_t sz, const char* file, int line) {
 
 void* m61_calloc(size_t nmemb, size_t sz, const char* file, int line) {
     // Your code here (to fix test014).
+   if (nmemb * sz < sz || nmemb * sz  < nmemb) {
+        nfail++;
+        return NULL;
+    }
     void* ptr = m61_malloc(nmemb * sz, file, line);
     if (ptr)
         memset(ptr, 0, nmemb * sz);
@@ -150,8 +156,8 @@ void* m61_calloc(size_t nmemb, size_t sz, const char* file, int line) {
 void m61_getstatistics(struct m61_statistics* stats) {
     // Stub: set all statistics to enormous numbers
     memset(stats, 255, sizeof(struct m61_statistics));
-    	stats->nactive=nactive;
-    	stats->active_size=active_size;
+	stats->nactive=nactive;
+	stats->active_size=active_size;
 	stats->ntotal=ntotal;
 	stats->total_size=total_size;
 	stats->nfail=nfail;
@@ -182,3 +188,4 @@ void m61_printstatistics(void) {
 void m61_printleakreport(void) {
     // Your code here.
 }
+
