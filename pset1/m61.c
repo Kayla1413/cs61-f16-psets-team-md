@@ -6,14 +6,8 @@
 #include <inttypes.h>
 #include <assert.h>
 
-<<<<<<< HEAD
-// push on 9-17 to bry
-
-static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size, heap_min, heap_max;
-=======
 static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size; 
 static char* heap_min, heap_max;
->>>>>>> bf3c0b33901e1d9f0ba03c618b6a73bee9dd834d
 
 /* per-allocation metadata */
 typedef struct {
