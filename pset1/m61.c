@@ -6,6 +6,8 @@
 #include <inttypes.h>
 #include <assert.h>
 
+// push on 9-17 to bry
+
 static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size, heap_min, heap_max;
 
 /* per-allocation metadata */
