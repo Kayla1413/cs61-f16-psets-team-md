@@ -6,24 +6,19 @@
 #include <inttypes.h>
 #include <assert.h>
 
-// push on 9-17 to bry
+/* variables from m61.h for getstats */
+static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size;
+char* heap_min;
+char* heap_max;
 
-static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size, heap_min, heap_max;
-
-/* per-allocation metadata */
+/* metadata structure to get active_size */
 typedef struct {
     size_t block_size;
-    /* payload */
     const char* file;
     int line;
-    /* padding */
-    	// Not Applicable Yet
-    /* Temp Address Holder */
-    char *address;
 } metadata;
-// metadata main_metadata; 
 
-/// m61_malloc(sz, file, line)
+///    m61_malloc(sz, file, line)
 ///    Return a pointer to `sz` bytes of newly-allocated dynamic memory.
 ///    The memory is not initialized. If `sz == 0`, then m61_malloc may
 ///    either return NULL or a unique, newly-allocated pointer value.
@@ -32,46 +27,39 @@ typedef struct {
 void* m61_malloc(size_t sz, const char* file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
-
-   
-    // Checking to see if conditions are met & defining Null pointer
-    
     void *ptr = NULL;
-    ptr = base_malloc(sz);  
-    /* base malloc failed */
+    /* allocating more space than the user requested for metadata */
+    ptr = base_malloc(sz+sizeof(metadata));  
+    /* if base_malloc fails or succeeds */
     if (!ptr){
 	nfail++;
 	fail_size+=sz;
-	return NULL;	
+	return ptr;	
     }
     else{
-	/* get statistics */
+	/* updating statistics */
 	ntotal++;
 	total_size+=sz;
 	nactive++;
         active_size+=sz;    
-	/* initialize metadata */
-	metadata *main_metadata;
+	/* initializing metadata */
+	metadata *main_metadata = (metadata*) ptr;
 	main_metadata->block_size=sz;
 	main_metadata->file=file;
 	main_metadata->line=line;
+	/* updating more statistics */
+	/*
+	if(heap_max==NULL || heap_max<ptr)
+		heap_max=ptr;
 
-	/* setting up min heap stuff to check min address - doesn't work 
-		int ptr2 = base_malloc(sz);
-		int value = strcmp(&ptr2, main_metadata.address);
-		if(value < 0){
-			heap_min = (long long) &ptr2;
-		//memcpy(&heap_min, &ptr2, sizeof(unsigned long long );
-		}
-		main_metadata.address = &ptr2;
-		return ptr2;
+	return ptr;
 	*/
-	return base_malloc(sz);
+	// return ptr + sizeof(metadata);
     }
 }
 
 
-/// m61_free(ptr, file, line)
+///    m61_free(ptr, file, line)
 ///    Free the memory space pointed to by `ptr`, which must have been
 ///    returned by a previous call to m61_malloc and friends. If
 ///    `ptr == NULL`, does nothing. The free was called at location
@@ -80,20 +68,15 @@ void* m61_malloc(size_t sz, const char* file, int line) {
 void m61_free(void *ptr, const char *file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
-
-    // active_size isn't defined right, I just free 3x the amt of ptr size for now
-    // active_size-=sizeof(*ptr)*3;
-    /* New version of active_size, if fail, version above is good */
-    active_size-=sizeof(*ptr)*3;
-// metadata *metadata1 = ((metadata*) ptr-1);	
-// active_size-=metadata1->block_size;
-    /* Just like in realloc, I checked size_allocation to know
-	how much mem to remove from active_size */
-    
-    	//size_t asize = (*(metadata*) ptr).block_size;
-	//size_t asize = (*(metadata*) ptr).block_size; active_size-=asize;
+    metadata *main_metadata = (metadata*) ptr;
+  
+    /* updating statistics */
     nactive--;
-    base_free(ptr);
+    active_size-=main_metadata->block_size;
+    /* initializing metadata */
+    main_metadata->file=file; 
+    main_metadata->line=line;
+    base_free((metadata*) ptr);
 }
 
 
@@ -121,7 +104,6 @@ void* m61_realloc(void* ptr, size_t sz, const char* file, int line) {
 	else{
 		memcpy(new_ptr,ptr,sz);
 	}
-
     }
     m61_free(ptr, file, line);
     return new_ptr;
@@ -157,7 +139,7 @@ void m61_getstatistics(struct m61_statistics* stats) {
 	stats->nfail=nfail;
 	stats->fail_size=fail_size;
 	stats->heap_min=heap_min;
-	// stats->heap_max=heap_max;
+	stats->heap_max=heap_max;
 }
 
 
