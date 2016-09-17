@@ -23,7 +23,7 @@ typedef struct {
     /* Temp Address Holder */
     char *address;
 } metadata;
-// metadata main_metadata; 
+metadata main_metadata; 
 
 /// m61_malloc(sz, file, line)
 ///    Return a pointer to `sz` bytes of newly-allocated dynamic memory.
@@ -34,8 +34,12 @@ typedef struct {
 void* m61_malloc(size_t sz, const char* file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
+	if (sz > SIZE_MAX - sizeof(struct m61_statistics)) {
+        nfail++;
+        fail_size += sz;
+        return NULL;
+    }
 
-   
     // Checking to see if conditions are met & defining Null pointer
     
     void *ptr = NULL;
@@ -53,10 +57,10 @@ void* m61_malloc(size_t sz, const char* file, int line) {
 	nactive++;
         active_size+=sz;    
 	/* initialize metadata */
-	metadata *main_metadata;
-	main_metadata->block_size=sz;
-	main_metadata->file=file;
-	main_metadata->line=line;
+
+	main_metadata.block_size=sz;
+	main_metadata.file=file;
+	main_metadata.line=line;
 
 	/* setting up min heap stuff to check min address - doesn't work 
 		int ptr2 = base_malloc(sz);
@@ -116,13 +120,13 @@ void* m61_realloc(void* ptr, size_t sz, const char* file, int line) {
         // Your code here (to fix test012).
 	
 	/* Casts ptr to Metadata structure type, and then checks block_size */
-	size_t asize = (*(metadata*) ptr).block_size;
-	if(asize<sz){
-		memcpy(new_ptr,ptr,asize);
-	}
-	else{
-		memcpy(new_ptr,ptr,sz);
-	}
+		size_t asize = main_metadata.block_size;
+		if(asize <= sz){
+			memcpy(new_ptr,ptr,asize);
+		}
+		else{
+			memcpy(new_ptr,ptr,sz);
+		}
 
     }
     m61_free(ptr, file, line);
