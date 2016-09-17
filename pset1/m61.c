@@ -6,7 +6,8 @@
 #include <inttypes.h>
 #include <assert.h>
 
-static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size, heap_min, heap_max;
+static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size; 
+static char* heap_min, heap_max;
 
 /* per-allocation metadata */
 typedef struct {
@@ -15,7 +16,7 @@ typedef struct {
     const char* file;
     int line;
     /* padding */
-    	// Not Applicable Yet
+        // Not Applicable Yet
     /* Temp Address Holder */
     char *address;
 } metadata;
@@ -38,33 +39,33 @@ void* m61_malloc(size_t sz, const char* file, int line) {
     ptr = base_malloc(sz);  
     /* base malloc failed */
     if (!ptr){
-	nfail++;
-	fail_size+=sz;
-	return NULL;	
+    nfail++;
+    fail_size+=sz;
+    return NULL;    
     }
     else{
-	/* get statistics */
-	ntotal++;
-	total_size+=sz;
-	nactive++;
+    /* get statistics */
+    ntotal++;
+    total_size+=sz;
+    nactive++;
         active_size+=sz;    
-	/* initialize metadata */
-	metadata *main_metadata;
-	main_metadata->block_size=sz;
-	main_metadata->file=file;
-	main_metadata->line=line;
+    /* initialize metadata */
+    metadata *main_metadata = NULL;
+    main_metadata->block_size=sz;
+    main_metadata->file=file;
+    main_metadata->line=line;
 
-	/* setting up min heap stuff to check min address - doesn't work 
-		int ptr2 = base_malloc(sz);
-		int value = strcmp(&ptr2, main_metadata.address);
-		if(value < 0){
-			heap_min = (long long) &ptr2;
-		//memcpy(&heap_min, &ptr2, sizeof(unsigned long long );
-		}
-		main_metadata.address = &ptr2;
-		return ptr2;
-	*/
-	return base_malloc(sz);
+    /* setting up min heap stuff to check min address - doesn't work 
+        int ptr2 = base_malloc(sz);
+        int value = strcmp(&ptr2, main_metadata.address);
+        if(value < 0){
+            heap_min = (long long) &ptr2;
+        //memcpy(&heap_min, &ptr2, sizeof(unsigned long long );
+        }
+        main_metadata.address = &ptr2;
+        return ptr2;
+    */
+    return base_malloc(sz);
     }
 }
 
@@ -83,13 +84,13 @@ void m61_free(void *ptr, const char *file, int line) {
     // active_size-=sizeof(*ptr)*3;
     /* New version of active_size, if fail, version above is good */
     active_size-=sizeof(*ptr)*3;
-// metadata *metadata1 = ((metadata*) ptr-1);	
+// metadata *metadata1 = ((metadata*) ptr-1);   
 // active_size-=metadata1->block_size;
     /* Just like in realloc, I checked size_allocation to know
-	how much mem to remove from active_size */
+    how much mem to remove from active_size */
     
-    	//size_t asize = (*(metadata*) ptr).block_size;
-	//size_t asize = (*(metadata*) ptr).block_size; active_size-=asize;
+        //size_t asize = (*(metadata*) ptr).block_size;
+    //size_t asize = (*(metadata*) ptr).block_size; active_size-=asize;
     nactive--;
     base_free(ptr);
 }
@@ -110,15 +111,15 @@ void* m61_realloc(void* ptr, size_t sz, const char* file, int line) {
         // Copy the data from `ptr` into `new_ptr`.
         // To do that, we must figure out the size of allocation `ptr`.
         // Your code here (to fix test012).
-	
-	/* Casts ptr to Metadata structure type, and then checks block_size */
-	size_t asize = (*(metadata*) ptr).block_size;
-	if(asize<sz){
-		memcpy(new_ptr,ptr,asize);
-	}
-	else{
-		memcpy(new_ptr,ptr,sz);
-	}
+    
+    /* Casts ptr to Metadata structure type, and then checks block_size */
+    size_t asize = (*(metadata*) ptr).block_size;
+    if(asize<sz){
+        memcpy(new_ptr,ptr,asize);
+    }
+    else{
+        memcpy(new_ptr,ptr,sz);
+    }
 
     }
     m61_free(ptr, file, line);
@@ -148,16 +149,17 @@ void* m61_calloc(size_t nmemb, size_t sz, const char* file, int line) {
 void m61_getstatistics(struct m61_statistics* stats) {
     // Stub: set all statistics to enormous numbers
     memset(stats, 255, sizeof(struct m61_statistics));
-    	stats->nactive=nactive;
-    	stats->active_size=active_size;
-	stats->ntotal=ntotal;
-	stats->total_size=total_size;
-	stats->nfail=nfail;
-	stats->fail_size=fail_size;
-	stats->heap_min=heap_min;
-	// stats->heap_max=heap_max;
-}
+    // Your code here.
+    stats->nactive = nactive;
+    stats->active_size=active_size;
+    stats->ntotal=ntotal;
+    stats->total_size = total_size;
+    stats->nfail=nfail;
+    stats->fail_size=fail_size;
+    stats->heap_min=heap_min;
+    stats->heap_max=&heap_max;
 
+}
 
 /// m61_printstatistics()
 ///    Print the current memory statistics.
