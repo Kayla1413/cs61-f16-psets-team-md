@@ -51,7 +51,8 @@ void* m61_malloc(size_t sz, const char* file, int line) {
 	/*
 	if(heap_max==NULL || heap_max<ptr)
 		heap_max=ptr;
-
+	if(heap_min==NULL || heap_min>ptr)
+		heap_min=ptr;
 	return ptr;
 	*/
 	// return ptr + sizeof(metadata);
