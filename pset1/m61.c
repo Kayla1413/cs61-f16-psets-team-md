@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <assert.h>
+#include <stdbool.h>
 
 // push on 9-17 to bry
 
@@ -14,75 +15,150 @@ char* heap_min;
 char* heap_max;
 
 /* metadata structure to get active_size */
-typedef struct {
-    size_t block_size;
-    const char* file;
-    int line;
-} metadata;
-metadata main_metadata; 
+struct m61_metadata {
+    unsigned long long block_size;            
+    int active;     
+    char* address;                     
+    const char* file;                   
+    int line;                           
+    struct m61_metadata* prev_ptr;          
+    struct m61_metadata* next_ptr;                                
+};
 
-/// m61_malloc(sz, file, line)
-///    Return a pointer to `sz` bytes of newly-allocated dynamic memory.
-///    The memory is not initialized. If `sz == 0`, then m61_malloc may
-///    either return NULL or a unique, newly-allocated pointer value.
-///    The allocation request was at location `file`:`line`.
+struct m61_metadata* metadata_link = NULL;
+
+typedef struct m61_buffers {
+    unsigned long long buffer1;      
+    unsigned long long buffer2;     
+} m61_buffers;
 
 void* m61_malloc(size_t sz, const char* file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
-    void *ptr = NULL;
-    /* allocating more space than the user requested for metadata */
-    ptr = base_malloc(sz+sizeof(metadata));  
-    /* if base_malloc fails or succeeds */
-    if (!ptr){
-	nfail++;
-	fail_size+=sz;
-	return ptr;	
+    if (sz > SIZE_MAX - sizeof(struct m61_statistics) - sizeof(m61_buffers)) {
+        nfail++;
+        fail_size += sz;
+        return NULL;
     }
-    else{
-	/* updating statistics */
-	ntotal++;
-	total_size+=sz;
-	nactive++;
-        active_size+=sz;    
-	/* initializing metadata */
-	metadata *main_metadata = (metadata*) ptr;
-	main_metadata->block_size=sz;
-	main_metadata->file=file;
-	main_metadata->line=line;
-	/* updating more statistics */
-	/*
-	if(heap_max==NULL || heap_max<ptr)
-		heap_max=ptr;
+    m61_buffers buffer;
+	buffer.buffer1 = 1234;
+	buffer.buffer2 = 4321;
 
-	return ptr;
-	*/
-	// return ptr + sizeof(metadata);
+    struct m61_metadata metadata;
+	metadata.block_size = sz;
+	metadata.active = 0;
+	metadata.address = NULL;
+	metadata.file = file;
+	metadata.line = line;
+	metadata.prev_ptr = NULL;
+	metadata.next_ptr = NULL;
+
+    struct m61_metadata* ptr = NULL;
+    ptr = malloc(sizeof(struct m61_metadata)+sz+sizeof(m61_buffers));
+
+    if (!ptr) {
+        nfail++;
+        fail_size += sz;
+        return ptr;
     }
+
+    ntotal++;
+    nactive++;
+    total_size += sz;
+    active_size += sz;
+
+    char* heap_min_t = (char*) ptr;
+    char* heap_max_t = (char*) ptr + sz + sizeof(struct m61_metadata) + sizeof(m61_buffers);
+    if (!heap_min || heap_min >= heap_min_t) {
+        heap_min = heap_min_t;
+    }
+
+    if (!heap_max || heap_max <= heap_max_t) {
+        heap_max = heap_max_t;
+    }
+
+    metadata.address = (char*) (ptr + 1);
+    *ptr = metadata;
+    if (metadata_link) {
+        ptr->next_ptr = metadata_link;
+        metadata_link->prev_ptr = ptr;
+    }
+    metadata_link = ptr;
+
+    m61_buffers* buffer_ptr = (m61_buffers*) ((char*) (ptr + 1) + sz);
+    *buffer_ptr = buffer;
+
+    return ptr + 1;
 }
-
-
-///    m61_free(ptr, file, line)
-///    Free the memory space pointed to by `ptr`, which must have been
-///    returned by a previous call to m61_malloc and friends. If
-///    `ptr == NULL`, does nothing. The free was called at location
-///    `file`:`line`.
 
 void m61_free(void *ptr, const char *file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
-    metadata *main_metadata = (metadata*) ptr;
-  
-    /* updating statistics */
-    nactive--;
-    active_size-=main_metadata->block_size;
-    /* initializing metadata */
-    main_metadata->file=file; 
-    main_metadata->line=line;
-    base_free((metadata*) ptr);
+    if (ptr) {
+        struct m61_metadata* new_ptr = (struct m61_metadata*) ptr - 1;
+        if ((char*) new_ptr >= heap_min && (char*) new_ptr <= heap_max) {
+            if (new_ptr->active != 1) {
+                if (new_ptr->address != (char*) ptr) {
+                    printf("MEMORY BUG: %s:%d: invalid free of pointer %p, not allocated\n", file, line, ptr);
+                    for (struct m61_metadata* metadata = metadata_link; metadata != NULL; metadata = metadata->next_ptr) {
+                        if ((char*) ptr >= (char*) metadata && (char*) ptr <= (char*) (metadata + 1) + metadata->block_size + sizeof(m61_buffers))
+                            printf("  %s:%d: %p is %zu bytes inside a %llu byte region allocated here\n", 
+                                    metadata->file, metadata->line, ptr, (char*) ptr - metadata->address, metadata->block_size);
+                    }
+                    abort();
+                }
+                if (new_ptr->next_ptr) {
+                    if (new_ptr->next_ptr->prev_ptr != new_ptr) {
+                        printf("MEMORY BUG: %s%d: invalid free of pointer %p\n", file, line, ptr);
+                        abort();
+                    }
+                }
+                else if (new_ptr->prev_ptr) {
+                    if (new_ptr->prev_ptr->next_ptr != new_ptr) {
+                        printf("MEMEORY BUG: %s%d: invalid free of pointer %p\n", file, line, ptr);
+                        abort();
+                    }
+                }
+                else if ((new_ptr->prev_ptr && new_ptr->next_ptr) &&
+                        (new_ptr->prev_ptr->next_ptr != new_ptr || new_ptr->next_ptr->prev_ptr != new_ptr)) {
+                    printf("MEMORY BUG: %s%d: invalid free of pointer %p\n", file, line, ptr);
+                    abort();
+                }
+
+                m61_buffers* buffer_ptr = (m61_buffers*) ((char*) ptr + new_ptr->block_size);
+                if (buffer_ptr->buffer1 != 1234 || buffer_ptr->buffer2 != 4321) {
+                    printf("MEMORY BUG: %s:%d: detected wild write during free of pointer %p\n", file, line, ptr);
+                    abort();
+                }
+
+                if (new_ptr->prev_ptr)
+                   new_ptr->prev_ptr->next_ptr = new_ptr->next_ptr;
+                else
+                    metadata_link = new_ptr->next_ptr;
+                if (new_ptr->next_ptr)
+                    new_ptr->next_ptr->prev_ptr = new_ptr->prev_ptr;
+
+                new_ptr->next_ptr = NULL;
+                new_ptr->prev_ptr = NULL;
+
+                // statistics
+                nactive--;
+                active_size -= new_ptr->block_size;
+
+                new_ptr->active = 1;
+                free(new_ptr);
+            }
+            else {
+                printf("MEMORY BUG: %s:%d: invalid free of pointer %p\n", file, line, ptr);
+                abort();
+            }
+        }
+        else {
+            printf("MEMORY BUG: %s:%d: invalid free of pointer %p, not in heap\n", file, line, ptr);
+            abort();
+        }
+    }
 }
-
-
 /// m61_realloc(ptr, sz, file, line)
 ///    Reallocate the dynamic memory pointed to by `ptr` to hold at least
 ///    `sz` bytes, returning a pointer to the new block. If `ptr` is NULL,
@@ -98,32 +174,20 @@ void* m61_realloc(void* ptr, size_t sz, const char* file, int line) {
         // Copy the data from `ptr` into `new_ptr`.
         // To do that, we must figure out the size of allocation `ptr`.
         // Your code here (to fix test012).
-	
-	/* Casts ptr to Metadata structure type, and then checks block_size */
-		size_t asize = main_metadata.block_size;
-		if(asize <= sz){
-			memcpy(new_ptr,ptr,asize);
-		}
-		else{
-			memcpy(new_ptr,ptr,sz);
-		}
-
+        struct m61_metadata* metadata = (struct m61_metadata*) ptr - 1;
+        size_t old_sz = metadata->block_size;
+        if (old_sz <= sz)
+            memcpy(new_ptr, ptr, old_sz);
+        else
+            memcpy(new_ptr, ptr, sz);
     }
     m61_free(ptr, file, line);
     return new_ptr;
 }
 
-
-/// m61_calloc(nmemb, sz, file, line)
-///    Return a pointer to newly-allocated dynamic memory big enough to
-///    hold an array of `nmemb` elements of `sz` bytes each. The memory
-///    is initialized to zero. If `sz == 0`, then m61_malloc may
-///    either return NULL or a unique, newly-allocated pointer value.
-///    The allocation request was at location `file`:`line`.
-
 void* m61_calloc(size_t nmemb, size_t sz, const char* file, int line) {
     // Your code here (to fix test014).
-   if (nmemb * sz < sz || nmemb * sz  < nmemb) {
+    if (nmemb * sz < sz || nmemb * sz  < nmemb) {
         nfail++;
         return NULL;
     }
@@ -132,6 +196,7 @@ void* m61_calloc(size_t nmemb, size_t sz, const char* file, int line) {
         memset(ptr, 0, nmemb * sz);
     return ptr;
 }
+
 
 
 /// m61_getstatistics(stats)
@@ -147,12 +212,8 @@ void m61_getstatistics(struct m61_statistics* stats) {
 	stats->nfail=nfail;
 	stats->fail_size=fail_size;
 	stats->heap_min=heap_min;
-	// stats->heap_max=heap_max;
+	stats->heap_max=heap_max;
 }
-
-
-/// m61_printstatistics()
-///    Print the current memory statistics.
 
 void m61_printstatistics(void) {
     struct m61_statistics stats;
