@@ -232,14 +232,10 @@ void m61_printstatistics(void) {
 
 void m61_printleakreport(void) {
     // Your code here.
-    
-    struct m61_metadata* item = metadata_link;
-    
-	while(item!=NULL){
-	printf("LEAK CHECK: %s:%d: allocated object %p with size %zd\n",item->file, item->line, item, (size_t)item->block_size);
-	item=item->next_ptr;
-	}
-   	
+
+    for (struct m61_metadata* metadata = metadata_link; metadata != NULL; metadata = metadata->next_ptr) {
+		 printf("LEAK CHECK: %s:%d: allocated object %p with size %llu\n", metadata->file, metadata->line, metadata->address, metadata->block_size);
+	}  	
 }
 
 
