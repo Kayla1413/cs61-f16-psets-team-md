@@ -7,14 +7,12 @@
 #include <assert.h>
 #include <stdbool.h>
 
-// push on 9-17 to bry
-
-/* variables from m61.h for getstats */
+/* declaring variables from m61.h */
 static unsigned long long nactive, active_size, ntotal, total_size, nfail, fail_size;
 char* heap_min;
 char* heap_max;
 
-/* metadata structure to get active_size */
+/* metadata structure to accompany payload */
 struct m61_metadata {
     unsigned long long block_size;            
     int active;     
@@ -24,9 +22,9 @@ struct m61_metadata {
     struct m61_metadata* prev_ptr;          
     struct m61_metadata* next_ptr;                                
 };
-
 struct m61_metadata* metadata_link = NULL;
 
+/* struct leveraged to catch Boundary write errors */
 typedef struct m61_buffers {
     unsigned long long buffer1;      
     unsigned long long buffer2;     
@@ -34,16 +32,20 @@ typedef struct m61_buffers {
 
 void* m61_malloc(size_t sz, const char* file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
-    // Your code here.
+    
+    /* handling extreme size requests */
     if (sz > SIZE_MAX - sizeof(struct m61_statistics) - sizeof(m61_buffers)) {
         nfail++;
         fail_size += sz;
         return NULL;
     }
+
+    /* initializing buffer */
     m61_buffers buffer;
 	buffer.buffer1 = 1234;
 	buffer.buffer2 = 4321;
 
+    /* initializing metadata */
     struct m61_metadata metadata;
 	metadata.block_size = sz;
 	metadata.active = 0;
@@ -53,30 +55,33 @@ void* m61_malloc(size_t sz, const char* file, int line) {
 	metadata.prev_ptr = NULL;
 	metadata.next_ptr = NULL;
 
+    /* allocating memory with more space than the user requested */
     struct m61_metadata* ptr = NULL;
     ptr = malloc(sizeof(struct m61_metadata)+sz+sizeof(m61_buffers));
 
+    /* handling failed allocations */
     if (!ptr) {
         nfail++;
         fail_size += sz;
         return ptr;
     }
-
+    
+    /* setting some overall statistics */
     ntotal++;
     nactive++;
     total_size += sz;
     active_size += sz;
-
+    /* setting some more overall statistics w. logic (heap max & min) */
     char* heap_min_t = (char*) ptr;
     char* heap_max_t = (char*) ptr + sz + sizeof(struct m61_metadata) + sizeof(m61_buffers);
     if (!heap_min || heap_min >= heap_min_t) {
         heap_min = heap_min_t;
     }
-
     if (!heap_max || heap_max <= heap_max_t) {
         heap_max = heap_max_t;
     }
 
+    /* initializing more metadata */
     metadata.address = (char*) (ptr + 1);
     *ptr = metadata;
     if (metadata_link) {
@@ -85,15 +90,17 @@ void* m61_malloc(size_t sz, const char* file, int line) {
     }
     metadata_link = ptr;
 
+    /* defining value of buffer to catch write errors */
     m61_buffers* buffer_ptr = (m61_buffers*) ((char*) (ptr + 1) + sz);
     *buffer_ptr = buffer;
-
+    
     return ptr + 1;
 }
 
 void m61_free(void *ptr, const char *file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
-    // Your code here.
+    /* performs invalid free and double-free detection 
+       and print all error information accordingly */
     if (ptr) {
         struct m61_metadata* new_ptr = (struct m61_metadata*) ptr - 1;
         if ((char*) new_ptr >= heap_min && (char*) new_ptr <= heap_max) {
@@ -141,11 +148,11 @@ void m61_free(void *ptr, const char *file, int line) {
                 new_ptr->next_ptr = NULL;
                 new_ptr->prev_ptr = NULL;
 
-                // statistics
+                /* updating some of the overall statistics */
                 nactive--;
                 active_size -= new_ptr->block_size;
-
                 new_ptr->active = 1;
+
                 free(new_ptr);
             }
             else {
@@ -171,13 +178,12 @@ void* m61_realloc(void* ptr, size_t sz, const char* file, int line) {
     if (sz)
         new_ptr = m61_malloc(sz, file, line);
     if (ptr && new_ptr) {
-        // Copy the data from `ptr` into `new_ptr`.
-        // To do that, we must figure out the size of allocation `ptr`.
-        // Your code here (to fix test012).
+        /* casted pointer to metadata structure to figure out size
+	   and then used memory copy function */
         struct m61_metadata* metadata = (struct m61_metadata*) ptr - 1;
-        size_t old_sz = metadata->block_size;
-        if (old_sz <= sz)
-            memcpy(new_ptr, ptr, old_sz);
+        size_t asize = metadata->block_size;
+        if (asize <= sz)
+            memcpy(new_ptr, ptr, asize);
         else
             memcpy(new_ptr, ptr, sz);
     }
@@ -231,8 +237,7 @@ void m61_printstatistics(void) {
 ///    memory.
 
 void m61_printleakreport(void) {
-    // Your code here.
-
+    /* looping through each metadata item and printing stats */
     for (struct m61_metadata* metadata = metadata_link; metadata != NULL; metadata = metadata->next_ptr) {
 		 printf("LEAK CHECK: %s:%d: allocated object %p with size %llu\n", metadata->file, metadata->line, metadata->address, metadata->block_size);
 	}  	
