@@ -9,10 +9,10 @@ Citations include diagrams and textbooks segmented referenced in
 pset instructions including:
 CS:APP3e Figure 9.35 "Format of a simple heap block"
 CS:APP2e Aside "Security vulnerability in the XDR library"
+Additionally, responses posted on the piazza forum.
 
 NOTES FOR THE GRADER (if any):
 N/A
-
 
 EXTRA CREDIT ATTEMPTED (if any):
 N/A
