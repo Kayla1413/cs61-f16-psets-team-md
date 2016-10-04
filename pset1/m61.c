@@ -288,5 +288,3 @@ void m61_printheavyhitters(void) {
         printf("HEAVY HITTER: %s:%d: %llu bytes (%.2f\%%)\n", heavy_hitters[i].file, heavy_hitters[i].line, heavy_hitters[i].block_size, 100.0 * heavy_hitters[i].block_size / sample_size);
 }
 
-//HEAVY HITTER: hhtest.c:47: 205070336 bytes (%~6.24)
-
