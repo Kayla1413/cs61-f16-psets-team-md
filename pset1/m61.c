@@ -32,6 +32,23 @@ typedef struct m61_buffers {
     unsigned long long buffer2;     
 } m61_buffers;
 
+// Heavy hitters
+struct m61_metadata heavy_hitters[3];
+int heavy_hitters_size = 0;
+long sample_size = 0;
+
+void heavy(struct m61_metadata* array, int n) {
+    for(int i = 0; i < n - 1; i++) {
+        for(int index = 0; index < n - i - 1; index++) {
+            if(array[index].block_size < array[index+1].block_size) {
+                struct m61_metadata temp = array[index];
+                array[index] = array[index + 1];
+                array[index + 1] = temp;
+            }
+        }
+    }
+}
+
 void* m61_malloc(size_t sz, const char* file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
@@ -79,6 +96,29 @@ void* m61_malloc(size_t sz, const char* file, int line) {
 
     metadata.address = (char*) (ptr + 1);
     *ptr = metadata;
+
+    int heavy_hitter = 0;
+    sample_size += metadata.block_size;
+    for (int i = 0; i < 3; i++) {
+        if (heavy_hitters[i].file == metadata.file &&
+            heavy_hitters[i].line == metadata.line) {
+            heavy_hitters[i].block_size += metadata.block_size;
+            heavy_hitter = 1;
+        }
+    }
+   
+    if (!heavy_hitter && heavy_hitters_size < 3) {
+        heavy_hitters[heavy_hitters_size] = metadata;
+        heavy_hitters_size++;
+    }
+  
+    else {
+        if (!heavy_hitter && heavy_hitters[2].block_size < metadata.block_size)
+            heavy_hitters[2] = metadata;
+    }
+    heavy(heavy_hitters, heavy_hitters_size);
+
+
     if (metadata_link) {
         ptr->next_ptr = metadata_link;
         metadata_link->prev_ptr = ptr;
@@ -238,4 +278,10 @@ void m61_printleakreport(void) {
 	}  	
 }
 
+void m61_printheavyhitters(void) {
+    for(int i = 0; i < 3; i++)
+        printf("HEAVY HITTER: %s:%d: %llu bytes (%.2f\%%)\n", heavy_hitters[i].file, heavy_hitters[i].line, heavy_hitters[i].block_size, 100.0 * heavy_hitters[i].block_size / sample_size);
+}
+
+//HEAVY HITTER: hhtest.c:47: 205070336 bytes (%~6.24)
 
