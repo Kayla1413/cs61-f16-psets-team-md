@@ -1,5 +1,10 @@
 README for CS 61 Problem Set 1
 ------------------------------
+Request to regrade (completed heavy hitters portion)
+Note from Margo,
+"We will grade a late heavy hitters, figuring out how to deal with later hours for that part only (we will not take all your late hours away, because of this one part).  When you’ve finished it, put an explanatory note in your README, and request a regrade."
+
+
 YOU MUST FILL OUT THIS FILE BEFORE SUBMITTING!
 
 OTHER COLLABORATORS AND CITATIONS (if any):
