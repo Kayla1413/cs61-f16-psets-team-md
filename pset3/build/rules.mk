@@ -3,7 +3,7 @@ ISCLANG := $(shell if $(CC) --version | grep LLVM >/dev/null; then echo 1; else 
 
 CFLAGS ?= -std=gnu11 -W -Wall -Wshadow -g $(DEFS)
 O ?= -O3
-ifeq ($(filter 0 1 2 3 s,$(O)),$(strip $(O)))
+ifeq ($(filter 0 1 2 3 s,$(O)$(NOOVERRIDEO)),$(strip $(O)))
 override O := -O$(O)
 endif
 ifeq ($(SANITIZE),1)
@@ -34,6 +34,17 @@ ifneq ($(DEPFILES),)
 include $(DEPFILES)
 endif
 
+# Quiet down make output for stdio versions.
+# If the user runs 'make all' or 'make check', don't provide a separate
+# link line for every stdio-% target; instead print 'LINK STDIO VERSIONS'.
+ifneq ($(filter all check check-%,$(or $(MAKECMDGOALS),all)),)
+DEP_MESSAGES := $(shell mkdir -p $(DEPSDIR); echo LINK STDIO VERSIONS >$(DEPSDIR)/stdio.txt)
+STDIO_LINK_LINE = $(shell cat $(DEPSDIR)/stdio.txt)
+else
+STDIO_LINK_LINE = LINK $@
+endif
+
+
 # when the C compiler or optimization flags change, rebuild all objects
 ifneq ($(strip $(DEP_CC)),$(strip $(CC) $(CPPFLAGS) $(CFLAGS) $(O)))
 DEP_CC := $(shell mkdir -p $(DEPSDIR); echo >$(BUILDSTAMP); echo "DEP_CC:=$(CC) $(CFLAGS) $(O)" >$(DEPSDIR)/_cc.d)
@@ -47,6 +58,7 @@ else
 run = @$(if $(2),/bin/echo "  $(2) $(3)" &&,) $(1) $(3)
 xrun = $(if $(2),/bin/echo "  $(2) $(3)" &&,) $(1) $(3)
 endif
+runquiet = @$(1) $(3)
 
 $(BUILDSTAMP):
 	@mkdir -p $(@D)
