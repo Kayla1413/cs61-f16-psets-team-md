@@ -14,11 +14,11 @@ int cache_size = 64000;
 typedef struct io61_cache {
     unsigned char* memory;
 	// offset of first character in cache    
-    off_t start; 
+    size_t start; 
 	// offset of next char to read in cache    
-    off_t next; 
+    size_t next; 
 	// offset of last valid char in cache     
-    off_t end;       
+    size_t end;       
 } io61_cache;
 
 // io61_file
