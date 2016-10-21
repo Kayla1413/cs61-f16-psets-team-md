@@ -3,16 +3,30 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <errno.h>
+#include <sys/mman.h>
+#include <string.h>
 
 // io61.c
 //    YOUR CODE HERE!
 
+int cache_size = 64000;
+
+typedef struct io61_cache {
+    unsigned char* memory;
+	// offset of first character in cache    
+    off_t start; 
+	// offset of next char to read in cache    
+    off_t next; 
+	// offset of last valid char in cache     
+    off_t end;       
+} io61_cache;
 
 // io61_file
 //    Data structure for io61 file wrappers. Add your own stuff.
 
 struct io61_file {
     int fd;
+	io61_cache* cache;
 };
 
 
@@ -26,6 +40,10 @@ io61_file* io61_fdopen(int fd, int mode) {
     io61_file* f = (io61_file*) malloc(sizeof(io61_file));
     f->fd = fd;
     (void) mode;
+	f->cache = malloc(sizeof(io61_cache));
+	f->cache->start = 0;
+	f->cache->next = 0;
+	f->cache->end = 0;
     return f;
 }
 
@@ -53,7 +71,6 @@ int io61_readc(io61_file* f) {
         return EOF;
 }
 
-
 // io61_read(f, buf, sz)
 //    Read up to `sz` characters from `f` into `buf`. Returns the number of
 //    characters read on success; normally this is `sz`. Returns a short
@@ -62,10 +79,44 @@ int io61_readc(io61_file* f) {
 //    were read.
 
 ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
-	if (read(f->fd, buf, sz) == (int) sz)
-		return sz;
-	else
-		return -1;
+	size_t nread = 0;
+	size_t size;
+	while (nread != sz) {
+        // if not at end of cache
+        if (f->cache->next < f->cache->end) {
+			if ((int) (f->cache->end - f->cache->next) < (int) (sz - nread)) {
+				size = f->cache->end - f->cache->next;
+			} 
+			else {
+				size = sz - nread;
+			}
+			//copy from cache to buffer
+			memcpy(buf + nread, f->cache->memory +  f->cache->next - f->cache->start, size);
+			//update the next cache position
+			f->cache->next += size;
+			//update the number of chars read from cache
+			nread += size;
+		}
+		else {
+            f->cache->start = f->cache->end;
+			//read from file
+            size = read(f->fd, f->cache->memory, cache_size);
+			//if successfully read more than 0 chars
+            if (size > 0) {
+				//update the end of cache
+                f->cache->end += size; 
+			}
+            else {
+                return (ssize_t) nread ? (ssize_t) nread : (ssize_t) size;
+			}
+        }
+	}
+	return nread;
+	//read sz characters
+	//if (read(f->fd, buf, sz) == (int) sz)
+		//return sz;
+	//else
+		//return -1;
 }
 
 
@@ -89,6 +140,7 @@ int io61_writec(io61_file* f, int ch) {
 //    an error ohttps://github.com/cs61/cs61-f16-psets-team-mdccurred before any characters were written.
 
 ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
+	//write sz characters
     if (write(f->fd, buf, sz))
 		return sz;
     else
