@@ -62,18 +62,10 @@ int io61_readc(io61_file* f) {
 //    were read.
 
 ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
-    size_t nread = 0;
-    while (nread != sz) {
-        int ch = io61_readc(f);
-        if (ch == EOF)
-            break;
-        buf[nread] = ch;
-        ++nread;
-    }
-    if (nread != 0 || sz == 0 || io61_eof(f))
-        return nread;
-    else
-        return -1;
+	if (read(f->fd, buf, sz) == (int) sz)
+		return sz;
+	else
+		return -1;
 }
 
 
@@ -94,17 +86,11 @@ int io61_writec(io61_file* f, int ch) {
 // io61_write(f, buf, sz)
 //    Write `sz` characters from `buf` to `f`. Returns the number of
 //    characters written on success; normally this is `sz`. Returns -1 if
-//    an error occurred before any characters were written.
+//    an error ohttps://github.com/cs61/cs61-f16-psets-team-mdccurred before any characters were written.
 
 ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
-    size_t nwritten = 0;
-    while (nwritten != sz) {
-        if (io61_writec(f, buf[nwritten]) == -1)
-            break;
-        ++nwritten;
-    }
-    if (nwritten != 0 || sz == 0)
-        return nwritten;
+    if (write(f->fd, buf, sz))
+		return sz;
     else
         return -1;
 }
