@@ -51,11 +51,21 @@ int io61_close(io61_file* f) {
 //    (which is -1) on error or end-of-file.
 
 int io61_readc(io61_file* f) {
+    if(f->pos_tag < f->end_tag){
+	char c = f->cbuf[f->pos_tag];
+	++f->pos_tag;
+        return c;
+    }
+    else {
+	return EOF;
+    }
+/* Original Implementation Provided...
     unsigned char buf[1];
     if (read(f->fd, buf, 1) == 1)
         return buf[0];
     else
         return EOF;
+*/
 }
 
 
@@ -94,12 +104,26 @@ ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
 //    -1 on error.
 
 int io61_writec(io61_file* f, int ch) {
+	if(f->pos_tag < f->end_tag){
+		f->cbuf[f->pos_tag] = ch;
+		++f->pos_tag;
+		return 0;
+	}
+	else{
+		io61_flush(f);
+		return io61_writec(f, ch);
+	}
+	if (f->pos_tag - f->tag == BUFSZ) // Indicates that the buffer is full
+            io61_flush(f);
+         
+/* Original Implementation Provided...  
     unsigned char buf[1];
     buf[0] = ch;
     if (write(f->fd, buf, 1) == 1)
         return 0;
     else
         return -1;
+*/
 }
 
 
