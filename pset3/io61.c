@@ -16,10 +16,10 @@ typedef struct io61_cache {
     size_t size;     // Current size of cache
     size_t first;    // Position of the first char in writing cache
     size_t last;     // Position of the last char in writing cache
-    off_t start;     // File offset of first character in cache
-    off_t next;      // File offset of next char to read in cache
-    off_t previous_next; // File offset of previous next
-    off_t end;       // File offset of last valid char in cache
+    size_t start;     // offset of first character in cache
+    size_t next;      // offset of next char to read in cache
+    size_t previous_next; // offset of previous next
+    size_t end;       // offset of last valid char in cache
 } io61_cache;
 
 // io61_file
