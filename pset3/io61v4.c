@@ -7,7 +7,7 @@
 // io61_file
 //    Data structure for io61 file wrappers. Add your own stuff.
 
-#define BUFSZ 4096
+#define BUFSZ 16384
 struct io61_file {
     int fd;
     int mode;
