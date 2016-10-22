@@ -107,10 +107,9 @@ int io61_writec(io61_file* f, int ch) {
 //    an error occurred before any characters were written.
 
 ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
-    size_t nwritten = 0;
-   
+   size_t nwritten = 0;
    while (nwritten != sz) {
-       if (f->pos_tag - f->tag < BUFSZ) {
+       if (f->pos_tag - f->tag < BUFSZ) { // If there is space in buffer
            ssize_t n = sz - nwritten; 
            if (BUFSZ - (f->pos_tag - f->tag) < n)
                n = BUFSZ - (f->pos_tag - f->tag);
@@ -124,10 +123,9 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
        assert(f->pos_tag <= f->end_tag);
 
        // Check if we've filled the buffer and if so, call flush to write data.
-       if (f->pos_tag - f->tag == BUFSZ)
+       if (f->pos_tag - f->tag == BUFSZ) // Indicates that the buffer is full
            io61_flush(f);
    }
-
    return nwritten;
 }
 
@@ -138,7 +136,7 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
 //    data buffered for reading, or do nothing.
 
 int io61_flush(io61_file* f) {
-    if(f->end_tag != f->tag) {
+    if(f->end_tag != f->tag || (f->mode & O_ACCMODE) != O_RDONLY) {
 	ssize_t n = write(f->fd, f->cbuf, f->end_tag - f->tag);
 	assert(n == f->end_tag - f->tag);
     }
@@ -152,23 +150,16 @@ int io61_flush(io61_file* f) {
 //    Returns 0 on success and -1 on failure.
 
 int io61_seek(io61_file* f, off_t pos) {
-  if(pos < f->tag || pos > f->end_tag) {
-	off_t aligned_off = pos - (pos % BUFSZ);
-	off_t r = lseek(f->fd, aligned_off, SEEK_SET);
-	if(r != aligned_off)
+   if((f->mode & O_ACCMODE) != O_RDONLY)
+	io61_flush(f);
+   if(pos < f->tag || pos > f->end_tag || (f->mode & O_ACCMODE) != O_RDONLY) {
+	off_t r = lseek(f->fd, pos, SEEK_SET);
+	if(r != pos)
 		return -1;
-	f->tag = f->end_tag = aligned_off;
+	f->tag = f->end_tag = pos;
    }
    f->pos_tag = pos;
    return 0;  
-
-/*
-    off_t r = lseek(f->fd, (off_t) pos, SEEK_SET);
-    if (r == (off_t) pos)
-        return 0;
-    else
-        return -1;
-*/
 }
 
 
