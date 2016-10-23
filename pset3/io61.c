@@ -217,7 +217,13 @@ int io61_flush(io61_file* f) {
 	// If f was opened read-only
     if (f->mode == O_RDONLY)
         return 0;
-    // While the cache is not empty...
+
+	if(f->end_tag != f->tag || (f->mode & O_ACCMODE) != O_RDONLY) {
+		ssize_t n = write(f->fd, f->cbuf, f->end_tag - f->tag);
+		assert(n == f->end_tag - f->tag);
+    }
+   	f->pos_tag = f->tag = f->end_tag;
+
     while (f->cache_size) {
         size_t size = f->first ? BUFSZ - f->first : f->last;
         //write the cache to the file.
@@ -252,17 +258,20 @@ int io61_flush(io61_file* f) {
 //    Change the file pointer for file `f` to `pos` bytes into the file.
 //    Returns 0 on success and -1 on failure.
 
+
 int io61_seek(io61_file* f, off_t pos) {
-   if((f->mode & O_ACCMODE) != O_RDONLY)
-	io61_flush(f);
-   if(pos < f->tag || pos > f->end_tag || (f->mode & O_ACCMODE) != O_RDONLY) {
-	off_t r = lseek(f->fd, pos, SEEK_SET);
-	if(r != pos)
-		return -1;
-	f->tag = f->end_tag = pos;
-   }
-   f->pos_tag = pos;
-   return 0;  
+	if((f->mode & O_ACCMODE) != O_RDONLY)
+		io61_flush(f);
+   	if(pos < f->tag || pos > f->end_tag || (f->mode & O_ACCMODE) != O_RDONLY) {
+        off_t aligned = pos - (pos % BUFSZ);
+        off_t r = lseek(f->fd, aligned, SEEK_SET);
+        if (r != aligned)
+            return -1;
+        f->tag = f->end_tag = aligned;
+    }
+    f->prev_tag = f->pos_tag;
+    f->pos_tag = pos;
+    return 0;
 }
 
 
