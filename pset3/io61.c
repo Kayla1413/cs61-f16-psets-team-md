@@ -8,7 +8,7 @@
 // io61_file
 //    Data structure for io61 file wrappers. Add your own stuff.
 
-size_t BUFSZ = 16384;
+#define BUFSZ 16384
 
 struct io61_file {	
     int fd;
@@ -18,7 +18,7 @@ struct io61_file {
 	size_t first;
 	size_t last;
     unsigned char cbuf[BUFSZ];
-	size_t BUFSZ;
+	size_t cache_size;
     off_t tag; // file offset of first character in cache
 	off_t prev_tag; // offset of previous next
     off_t end_tag; // file offset one past last valid char in cache
@@ -38,7 +38,7 @@ io61_file* io61_fdopen(int fd, int mode) {
     f->mode = mode;
 	f->file_size = io61_filesize(f);
 	f->memory = calloc(BUFSZ, sizeof(char));
-    f->tag = f->end_tag = f->pos_tag = f->BUFSZ = f->first = f->last = f->prev_tag = 0;
+    f->tag = f->end_tag = f->pos_tag = f->cache_size = f->first = f->last = f->prev_tag = 0;
 
     return f;
 }
@@ -143,14 +143,14 @@ int io61_writec(io61_file* f, int ch) {
         return -1;
 	const char* buf = (const char*) &ch;
 	// how much space is available in cache
-	size_t available = BUFSZ - f->BUFSZ;
+	size_t available = BUFSZ - f->cache_size;
 	if (!available) {
 		//write the cache to the file.
         ssize_t nwritten = write(f->fd, f->memory + f->first, BUFSZ - f->first);
 		// If able to write
         if (nwritten >= 0) {
             f->first += nwritten;
-            f->BUFSZ -= nwritten;
+            f->cache_size -= nwritten;
 			// Check if at the end of cache 
             f->first = (BUFSZ == f->first) ? 0 : f->first;
             f->last = (BUFSZ == f->last) ? 0 : f->last;
@@ -162,7 +162,7 @@ int io61_writec(io61_file* f, int ch) {
 	// Write to cache
 	 *(f->memory + f->last) = *buf;
     f->last++;
-    f->BUFSZ++;
+    f->cache_size++;
     return 0;
          
 /* Original Implementation Provided...  
