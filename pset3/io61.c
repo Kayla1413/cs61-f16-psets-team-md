@@ -242,6 +242,12 @@ int io61_flush(io61_file* f) {
         else
             return -1;
     }
+    if(f->end_tag != f->tag){
+	ssize_t n = write(f->fd, f->cbuf, f->end_tag - f->tag);
+    	assert(n == f->end_tag - f->tag);
+    }
+    f->pos_tag = f->tag = f->end_tag;
+
     return 0;
 
 
