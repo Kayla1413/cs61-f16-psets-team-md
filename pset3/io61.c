@@ -213,12 +213,38 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
 //    data buffered for reading, or do nothing.
 
 int io61_flush(io61_file* f) {
-    if(f->end_tag != f->tag || (f->mode & O_ACCMODE) != O_RDONLY) {
-	ssize_t n = write(f->fd, f->cbuf, f->end_tag - f->tag);
-	assert(n == f->end_tag - f->tag);
+
+	// If f was opened read-only
+    if (f->mode == O_RDONLY)
+        return 0;
+    // While the cache is not empty...
+    while (f->cache_size) {
+        size_t size = f->first ? BUFSZ - f->first : f->last;
+        //write the cache to the file.
+        ssize_t cleared = write(f->fd, f->memory + f->first, size);
+        // If able to write to file
+        if (cleared > 0) {
+            // update cache position and size
+            f->first += cleared;
+            f->cache_size -= cleared;
+        }
+        // Else if nothing was written
+        else if (cleared == 0) {
+            f->first = cleared;
+        }
+        // Else not able to write successfully       
+        else
+            return -1;
     }
-    f->pos_tag = f->tag = f->end_tag;
     return 0;
+
+
+    //if(f->end_tag != f->tag || (f->mode & O_ACCMODE) != O_RDONLY) {
+	//ssize_t n = write(f->fd, f->cbuf, f->end_tag - f->tag);
+	//assert(n == f->end_tag - f->tag);
+    //}
+   // f->pos_tag = f->tag = f->end_tag;
+   // return 0;
 }
 
 
