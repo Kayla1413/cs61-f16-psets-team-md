@@ -8,7 +8,7 @@
 // io61_file
 //    Data structure for io61 file wrappers. Add your own stuff.
 // added another 4096 to BUFSZ
-#define BUFSZ 20480
+#define BUFSZ 16384
 
 struct io61_file {	
     int fd;
