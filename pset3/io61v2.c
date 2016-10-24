@@ -4,17 +4,23 @@
 #include <limits.h>
 #include <errno.h>
 
-// io61.c
-//    YOUR CODE HERE!
-
 
 // io61_file
 //    Data structure for io61 file wrappers. Add your own stuff.
 
-struct io61_file {
+#define BUFSZ 16384
+
+struct io61_file {	
     int fd;
-    unsigned char cbuf[BUFSIZ];
+    int mode;
+    unsigned char* memory;
+    size_t file_size;
+    size_t first;
+    size_t last;
+    unsigned char cbuf[BUFSZ];
+    size_t cache_size;
     off_t tag; // file offset of first character in cache
+    off_t prev_tag; // offset of previous next
     off_t end_tag; // file offset one past last valid char in cache
     off_t pos_tag; // file offset of next char to read in cache
 };
@@ -29,10 +35,10 @@ io61_file* io61_fdopen(int fd, int mode) {
     assert(fd >= 0);
     io61_file* f = (io61_file*) malloc(sizeof(io61_file));
     f->fd = fd;
-    f->tag = 0;
-    f->end_tag = 0;
-    f->pos_tag = 0;
-    (void) mode;
+    f->mode = mode;
+    f->file_size = io61_filesize(f);
+    f->memory = calloc(BUFSZ, sizeof(char));
+    f->tag = f->end_tag = f->pos_tag = f->cache_size = f->first = f->last = f->prev_tag = 0;
     return f;
 }
 
@@ -41,7 +47,8 @@ io61_file* io61_fdopen(int fd, int mode) {
 //    Close the io61_file `f` and release all its resources.
 
 int io61_close(io61_file* f) {
-    io61_flush(f);
+    if((f->mode & O_ACCMODE) != O_RDONLY)
+	io61_flush(f);
     int r = close(f->fd);
     free(f);
     return r;
@@ -53,11 +60,22 @@ int io61_close(io61_file* f) {
 //    (which is -1) on error or end-of-file.
 
 int io61_readc(io61_file* f) {
-    unsigned char buf[1];
-    if (read(f->fd, buf, 1) == 1)
-        return buf[0];
-    else
-        return EOF;
+    if (f->mode != O_RDONLY)
+        return -1;
+    if (f->pos_tag < f->end_tag) {
+        f->pos_tag++;
+        return *(f->memory + f->pos_tag - f->tag - 1);
+    }else {
+        f->tag = f->end_tag;
+        ssize_t size = read(f->fd, f->memory, BUFSZ);
+        if (size > 0) {
+            f->end_tag += size;
+            f->pos_tag++;
+            return *(f->memory + f->pos_tag - f->tag - 1);
+        }else{
+            return EOF;
+	}
+    }
 }
 
 
@@ -75,39 +93,20 @@ ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
         	ssize_t n = sz - nread;
                 if (n > f->end_tag - f->pos_tag)
                 	n = f->end_tag - f->pos_tag;
-                memcpy(&buf[nread], &f->cbuf[f->pos_tag], n);
+                memcpy(&buf[nread], &f->cbuf[f->pos_tag - f->tag], n);
                 f->pos_tag += n;
                 nread += n;
          }else{
 		f->tag = f->end_tag; // mark cache as empty
-                ssize_t n = read(f->fd, f->cbuf, BUFSIZ);
+                ssize_t n = read(f->fd, f->cbuf, BUFSZ);
                 if(n > 0)
-                	f->end_tag += n;
+            		f->end_tag += n;
                 else
-                	return nread ? nread : n;
+                	return nread ? (ssize_t) nread : (ssize_t) n;
  	}        
     }  
     return nread;
 }	
-/*
-
-        int ch = io61_readc(f);
-        if (ch == EOF)
-            break;
-        buf[nread] = ch;
-        ++nread;
-    }
-    if (nread != 0 || sz == 0 || io61_eof(f))
-        return nread;
-    else
-        return -1;
-
-    if(read(f->fd, buf,sz) == (int) sz)
-	return sz;
-    else
-	return -1;
-*/
-
 
 
 // io61_writec(f)
@@ -115,12 +114,25 @@ ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
 //    -1 on error.
 
 int io61_writec(io61_file* f, int ch) {
-    unsigned char buf[1];
-    buf[0] = ch;
-    if (write(f->fd, buf, 1) == 1)
-        return 0;
-    else
-        return -1;
+	if (f->mode != O_WRONLY)
+     		return -1;
+	const char* buf = (const char*) &ch;
+	size_t available = BUFSZ - f->cache_size;
+	if (!available) {
+        ssize_t nwritten = write(f->fd, f->memory + f->first, BUFSZ - f->first);
+        if (nwritten >= 0) {
+        	f->first += nwritten;
+        	f->cache_size -= nwritten;
+        	f->first = (BUFSZ == f->first) ? 0 : f->first;
+         	f->last = (BUFSZ == f->last) ? 0 : f->last;
+        }else{
+		return -1;
+	}   
+	}
+    *(f->memory + f->last) = *buf;
+    f->last++;
+    f->cache_size++;
+    return 0;
 }
 
 
@@ -130,21 +142,28 @@ int io61_writec(io61_file* f, int ch) {
 //    an error occurred before any characters were written.
 
 ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
-/*  
- size_t nwritten = 0;
-    while (nwritten != sz) {
-        if (io61_writec(f, buf[nwritten]) == -1)
-            break;
-        ++nwritten;
-    }
-    if (nwritten != 0 || sz == 0)
-        return nwritten;
-*/
-    if(write(f->fd, buf, sz))
-	return sz;
-    else
-        return -1;
+   size_t nwritten = 0;
+   if((f->mode & O_ACCMODE) != O_RDONLY){
+   	while (nwritten != sz) {
+       		if (f->pos_tag - f->tag < BUFSZ) { // If there is space in buffer
+           	     ssize_t n = sz - nwritten; 
+           	if (BUFSZ - (f->pos_tag - f->tag) < n)
+               	     n = BUFSZ - (f->pos_tag - f->tag);
+           	memcpy(&f->cbuf[f->pos_tag - f->tag], &buf[nwritten], n);
+           	f->pos_tag += n;
+           	if (f->pos_tag > f->end_tag)
+                     f->end_tag = f->pos_tag;
+           nwritten += n;
+       }
+       // The position should never exceed the end tag.
+       assert(f->pos_tag <= f->end_tag);
 
+       // Check if we've filled the buffer and if so, call flush to write data.
+       if (f->pos_tag - f->tag == BUFSZ) // Indicates that the buffer is full
+           io61_flush(f);
+	}
+   }
+   return nwritten;
 }
 
 
@@ -154,7 +173,40 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
 //    data buffered for reading, or do nothing.
 
 int io61_flush(io61_file* f) {
-    (void) f;
+
+	// If f was opened read-only
+    if (f->mode == O_RDONLY)
+        return 0;
+
+	if(f->end_tag != f->tag || (f->mode & O_ACCMODE) != O_RDONLY) {
+		ssize_t n = write(f->fd, f->cbuf, f->end_tag - f->tag);
+		assert(n == f->end_tag - f->tag);
+    }
+   	f->pos_tag = f->tag = f->end_tag;
+
+    while (f->cache_size) {
+        size_t size = f->first ? BUFSZ - f->first : f->last;
+        //write the cache to the file.
+        ssize_t cleared = write(f->fd, f->memory + f->first, size);
+        // If able to write to file
+        if (cleared > 0) {
+            // update cache position and size
+            f->first += cleared;
+            f->cache_size -= cleared;
+        }
+        // Else if nothing was written
+        else if (cleared == 0) {
+            f->first = cleared;
+        }
+        // Else not able to write successfully       
+        else
+            return -1;
+    }
+    if(f->end_tag != f->tag){
+	ssize_t n = write(f->fd, f->cbuf, f->end_tag - f->tag);
+    	assert(n == f->end_tag - f->tag);
+    }
+    f->pos_tag = f->tag = f->end_tag;
     return 0;
 }
 
@@ -164,11 +216,20 @@ int io61_flush(io61_file* f) {
 //    Returns 0 on success and -1 on failure.
 
 int io61_seek(io61_file* f, off_t pos) {
-    off_t r = lseek(f->fd, (off_t) pos, SEEK_SET);
-    if (r == (off_t) pos)
-        return 0;
-    else
-        return -1;
+	if((f->mode & O_ACCMODE) != O_RDONLY)
+		io61_flush(f);
+   	if(pos < f->tag || pos > f->end_tag || (f->mode & O_ACCMODE) != O_RDONLY) {
+        
+	off_t aligned = pos - (pos % BUFSZ);
+		off_t r = lseek(f->fd, aligned, SEEK_SET);
+                if(r != aligned)
+                	return -1;
+                f->tag = f->end_tag = aligned;
+	
+    }
+    f->prev_tag = f->pos_tag;
+    f->pos_tag = pos;
+    return 0;
 }
 
 
