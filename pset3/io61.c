@@ -13,14 +13,14 @@
 struct io61_file {	
     int fd;
     int mode;
-	unsigned char* memory;
-	size_t file_size;
-	size_t first;
-	size_t last;
+    unsigned char* memory;
+    size_t file_size;
+    size_t first;
+    size_t last;
     unsigned char cbuf[BUFSZ];
-	size_t cache_size;
+    size_t cache_size;
     off_t tag; // file offset of first character in cache
-	off_t prev_tag; // offset of previous next
+    off_t prev_tag; // offset of previous next
     off_t end_tag; // file offset one past last valid char in cache
     off_t pos_tag; // file offset of next char to read in cache
 };
@@ -36,10 +36,9 @@ io61_file* io61_fdopen(int fd, int mode) {
     io61_file* f = (io61_file*) malloc(sizeof(io61_file));
     f->fd = fd;
     f->mode = mode;
-	f->file_size = io61_filesize(f);
-	f->memory = calloc(BUFSZ, sizeof(char));
+    f->file_size = io61_filesize(f);
+    f->memory = calloc(BUFSZ, sizeof(char));
     f->tag = f->end_tag = f->pos_tag = f->cache_size = f->first = f->last = f->prev_tag = 0;
-
     return f;
 }
 
@@ -50,7 +49,6 @@ io61_file* io61_fdopen(int fd, int mode) {
 int io61_close(io61_file* f) {
     if((f->mode & O_ACCMODE) != O_RDONLY)
 	io61_flush(f);
-    // io61_flush(f);
     int r = close(f->fd);
     free(f);
     return r;
@@ -62,45 +60,22 @@ int io61_close(io61_file* f) {
 //    (which is -1) on error or end-of-file.
 
 int io61_readc(io61_file* f) {
-	if (f->mode != O_RDONLY)
+    if (f->mode != O_RDONLY)
         return -1;
-	if (f->pos_tag < f->end_tag) {
+    if (f->pos_tag < f->end_tag) {
         f->pos_tag++;
         return *(f->memory + f->pos_tag - f->tag - 1);
-    }
-	// cache is empty
-    else {
+    }else {
         f->tag = f->end_tag;
-		// Read from the file
         ssize_t size = read(f->fd, f->memory, BUFSZ);
-		// If read successfully
         if (size > 0) {
             f->end_tag += size;
             f->pos_tag++;
-			// Read the next char from cache
             return *(f->memory + f->pos_tag - f->tag - 1);
-        }
-        else
+        }else{
             return EOF;
+	}
     }
-
-
-
-    //if(f->pos_tag < f->end_tag){
-	//char c = f->cbuf[f->pos_tag];
-	//++f->pos_tag;
-       // return c;
-   // }
-   // else {
-	//return EOF;
- //   }
-/* Original Implementation Provided...
-    unsigned char buf[1];
-    if (read(f->fd, buf, 1) == 1)
-        return buf[0];
-    else
-        return EOF;
-*/
 }
 
 
@@ -123,12 +98,12 @@ ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
                 nread += n;
          }else{
 		f->tag = f->end_tag; // mark cache as empty
-            ssize_t n = read(f->fd, f->cbuf, BUFSZ);
-            if(n > 0)
-            	f->end_tag += n;
-            else
-                return nread ? (ssize_t) nread : (ssize_t) n;
- 		}        
+                ssize_t n = read(f->fd, f->cbuf, BUFSZ);
+                if(n > 0)
+            		f->end_tag += n;
+                else
+                	return nread ? (ssize_t) nread : (ssize_t) n;
+ 	}        
     }  
     return nread;
 }	
@@ -140,39 +115,25 @@ ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
 
 int io61_writec(io61_file* f, int ch) {
 	if (f->mode != O_WRONLY)
-        return -1;
+     		return -1;
 	const char* buf = (const char*) &ch;
-	// how much space is available in cache
 	size_t available = BUFSZ - f->cache_size;
 	if (!available) {
-		//write the cache to the file.
-        ssize_t nwritten = write(f->fd, f->memory + f->first, BUFSZ - f->first);
-		// If able to write
+	ssize_t nwritten = write(f->fd, f->memory + f->first, BUFSZ - f->first);
         if (nwritten >= 0) {
-            f->first += nwritten;
-            f->cache_size -= nwritten;
-			// Check if at the end of cache 
-            f->first = (BUFSZ == f->first) ? 0 : f->first;
-            f->last = (BUFSZ == f->last) ? 0 : f->last;
-        }
-		//write not succcessful
-		else
-            return -1;   
-    }
-	// Write to cache
-	 *(f->memory + f->last) = *buf;
+        	f->first += nwritten;
+        	f->cache_size -= nwritten;
+        	f->first = (BUFSZ == f->first) ? 0 : f->first;
+         	f->last = (BUFSZ == f->last) ? 0 : f->last;
+        
+	}else{
+		return -1;
+	}   
+	}
+    *(f->memory + f->last) = *buf;
     f->last++;
     f->cache_size++;
     return 0;
-         
-/* Original Implementation Provided...  
-    unsigned char buf[1];
-    buf[0] = ch;
-    if (write(f->fd, buf, 1) == 1)
-        return 0;
-    else
-        return -1;
-*/
 }
 
 
@@ -215,8 +176,9 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
 int io61_flush(io61_file* f) {
 
 	// If f was opened read-only
-    if (f->mode == O_RDONLY)
-        return 0;
+    //if (f->mode == O_RDONLY)
+        if(f->mode != O_WRONLY)
+	  return 0;
 
 	if(f->end_tag != f->tag || (f->mode & O_ACCMODE) != O_RDONLY) {
 		ssize_t n = write(f->fd, f->cbuf, f->end_tag - f->tag);
@@ -243,20 +205,12 @@ int io61_flush(io61_file* f) {
             return -1;
     }
     if(f->end_tag != f->tag){
-	ssize_t n = write(f->fd, f->cbuf, f->end_tag - f->tag);
-    	assert(n == f->end_tag - f->tag);
+	strcpy(f->cbuf, f->memory + f->first);
+    	// ssize_t n = write(f->fd, f->cbuf, f->end_tag - f->tag);
+	// assert(n == f->end_tag - f->tag);
     }
     f->pos_tag = f->tag = f->end_tag;
-
     return 0;
-
-
-    //if(f->end_tag != f->tag || (f->mode & O_ACCMODE) != O_RDONLY) {
-	//ssize_t n = write(f->fd, f->cbuf, f->end_tag - f->tag);
-	//assert(n == f->end_tag - f->tag);
-    //}
-   // f->pos_tag = f->tag = f->end_tag;
-   // return 0;
 }
 
 
@@ -264,28 +218,20 @@ int io61_flush(io61_file* f) {
 //    Change the file pointer for file `f` to `pos` bytes into the file.
 //    Returns 0 on success and -1 on failure.
 
-off_t temp = 0;
 int io61_seek(io61_file* f, off_t pos) {
 	if((f->mode & O_ACCMODE) != O_RDONLY)
 		io61_flush(f);
    	if(pos < f->tag || pos > f->end_tag || (f->mode & O_ACCMODE) != O_RDONLY) {
         
 	off_t aligned = pos - (pos % BUFSZ);
-	if(f->prev_tag > pos && f->prev_tag - pos == aligned){
 		off_t r = lseek(f->fd, aligned, SEEK_SET);
                 if(r != aligned)
-                return -1;
+                	return -1;
                 f->tag = f->end_tag = aligned;
-	}else{
-        	off_t r = lseek(f->fd, pos, SEEK_SET);
-        	if(r != pos)
-			return -1;
-		f->tag = f->end_tag = pos;
-	}    
+	
     }
     f->prev_tag = f->pos_tag;
     f->pos_tag = pos;
-    temp = pos;
     return 0;
 }
 
