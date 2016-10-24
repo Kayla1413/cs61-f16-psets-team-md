@@ -7,12 +7,13 @@
 
 // io61_file
 //    Data structure for io61 file wrappers. Add your own stuff.
-
-#define BUFSZ 16384
+// added another 4096 to BUFSZ
+#define BUFSZ 20480
 
 struct io61_file {	
     int fd;
     int mode;
+    int counter;
     unsigned char* memory;
     size_t file_size;
     size_t first;
@@ -219,19 +220,25 @@ int io61_flush(io61_file* f) {
 //    Returns 0 on success and -1 on failure.
 
 int io61_seek(io61_file* f, off_t pos) {
-	if((f->mode & O_ACCMODE) != O_RDONLY)
+   if((f->mode & O_ACCMODE) != O_RDONLY)
 		io61_flush(f);
-   	if(pos < f->tag || pos > f->end_tag || (f->mode & O_ACCMODE) != O_RDONLY) {
-        
+   if(pos < f->tag || pos > f->end_tag || (f->mode & O_ACCMODE) != O_RDONLY) {
 	off_t aligned = pos - (pos % BUFSZ);
+	if((int)pos == (f->counter - 1) || (int) pos == (f->counter + 1)){	
 		off_t r = lseek(f->fd, aligned, SEEK_SET);
                 if(r != aligned)
                 	return -1;
                 f->tag = f->end_tag = aligned;
-	
+	}else{
+		off_t r = lseek(f->fd, pos, SEEK_SET);
+		if(r != pos)
+			return -1;
+		f->tag = f->end_tag = pos;
+	}
     }
     f->prev_tag = f->pos_tag;
-    f->pos_tag = pos;
+    f->pos_tag = pos; 
+    f->counter = (int) pos;
     return 0;
 }
 
