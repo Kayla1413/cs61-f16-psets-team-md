@@ -27,8 +27,8 @@ struct io61_file {
     off_t end_tag; // file offset one past last valid char in cache
     off_t pos_tag; // file offset of next char to read in cache
     /* mmap */
-    // char* file_data
-    // int mappable;
+    char* file_data;
+    int mappable;
 };
 
 
@@ -45,13 +45,12 @@ io61_file* io61_fdopen(int fd, int mode) {
     f->file_size = io61_filesize(f);
     f->memory = calloc(BUFSZ, sizeof(char));
     f->tag = f->end_tag = f->pos_tag = f->cache_size = f->first = f->last = f->prev_tag = 0;
-    /*  mmap 
+    /*  mmap */ 
     if(BUFSZ  % f->file_size == 0){ // check if file size is aligned
-	file_data = mmap(NULL, f->file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	f->file_data = mmap(NULL, f->file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     }
-    if(file_data != MAP_FAILED)	
-	mappable = 1;
-    */
+    if(f->file_data != MAP_FAILED)	
+	f->mappable = 1;
     return f;
 }
 
@@ -61,7 +60,7 @@ io61_file* io61_fdopen(int fd, int mode) {
 
 int io61_close(io61_file* f) {
     /* mmap */
-    // munmap(f->file_data, f->file_size);
+    munmap(f->file_data, f->file_size);
     if((f->mode & O_ACCMODE) != O_RDONLY)
 	io61_flush(f);
     int r = close(f->fd);
@@ -102,8 +101,7 @@ int io61_readc(io61_file* f) {
 //    were read.
 
 ssize_t io61_read(io61_file* f, char* buf, size_t sz) { 
-/* added mappable implementation
-	// Modified lines 106, 126 - 130
+// added mappable implementation
 
 if(f->mappable != 1){
     size_t nread = 0;
@@ -127,12 +125,11 @@ if(f->mappable != 1){
     return nread;
 }else{
     size_t nread = 0;
-    while(nread < size) {
-	memcpy(buf, &file_data[nread], 1);
+    while(nread < f->file_size) {
+	memcpy(buf, &f->file_data[nread], 1);
 	nread += 1;
-*/
+    }
 }
-	
 }
 
 // io61_writec(f)
@@ -169,8 +166,7 @@ int io61_writec(io61_file* f, int ch) {
 //    an error occurred before any characters were written.
 
 ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
-/* mmap implementation added...
-	// modified lines 174, 197-201
+// mmap implementation added...
 if(f->mappable != 1){
    size_t nwritten = 0;
    if((f->mode & O_ACCMODE) != O_RDONLY){
