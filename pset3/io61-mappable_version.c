@@ -8,7 +8,6 @@
 
 // io61_file
 //    Data structure for io61 file wrappers. Add your own stuff.
-// added another 4096 to BUFSZ
 
 #define BUFSZ 16384
 
@@ -26,7 +25,15 @@ struct io61_file {
     off_t prev_tag; // offset of previous next
     off_t end_tag; // file offset one past last valid char in cache
     off_t pos_tag; // file offset of next char to read in cache
+    int mapped;
 };
+
+
+struct io61_file_mappable{
+    size_t size;
+    char* file_data;
+    int mapped;
+}
 
 // io61_fdopen(fd, mode)
 //    Return a new io61_file for file descriptor `fd`. `mode` is
@@ -35,13 +42,24 @@ struct io61_file {
 
 io61_file* io61_fdopen(int fd, int mode) {
     assert(fd >= 0);
+    if(/*check for some condition to determine if should mmap*/){
+	io61_file_mappable* f;
+	f->size = io61_filesize(f);
+	f->file_data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if(file_data != MAP_FAILED){
+		f->mapped = 1;
+		return f;
+	}
+    }
+    /* normal initialization if the mappable fails or mappable conditions aren't met */
     io61_file* f = (io61_file*) malloc(sizeof(io61_file));
     f->fd = fd;
     f->mode = mode;
     f->file_size = io61_filesize(f);
     f->memory = calloc(BUFSZ, sizeof(char));
     f->tag = f->end_tag = f->pos_tag = f->cache_size = f->first = f->last = f->prev_tag = 0;
-    return f;
+    f->mapped = 0;
+    return f;	
 }
 
 
@@ -49,8 +67,12 @@ io61_file* io61_fdopen(int fd, int mode) {
 //    Close the io61_file `f` and release all its resources.
 
 int io61_close(io61_file* f) {
-    if((f->mode & O_ACCMODE) != O_RDONLY)
-	io61_flush(f);
+    if(f->mapped == 1){
+	munmap(f->file_data, f->size);
+    }else{
+	if((f->mode & O_ACCMODE) != O_RDONLY)
+		io61_flush(f);
+    }
     int r = close(f->fd);
     free(f);
     return r;
@@ -90,7 +112,7 @@ int io61_readc(io61_file* f) {
 
 ssize_t io61_read(io61_file* f, char* buf, size_t sz) { 
 // added mappable implementation
-if((size_t) buf % sz != 0){
+if(f->mapped == 0){
     size_t nread = 0;
     while (nread != sz) {
     	if(f->pos_tag < f->end_tag) {
@@ -112,13 +134,11 @@ if((size_t) buf % sz != 0){
     return nread;
 }else{
     //mmap
-    char* file_data = mmap(NULL, sz, PROT_READ | PROT_WRITE, MAP_SHARED, f->fd, 0);
     size_t n = 0;
     while(n < sz){
-	memcpy(buf, &file_data[n], BUFSZ);
-	n += BUFSZ;
+	memcpy(buf, &file_data[n],f->size);
+	n += f->size;
     }    
-    munmap(file_data, sz);
     return n;
 }
 
@@ -158,7 +178,6 @@ int io61_writec(io61_file* f, int ch) {
 //    an error occurred before any characters were written.
 
 ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
-if((size_t) buf % sz != 0){
    size_t nwritten = 0;
    if((f->mode & O_ACCMODE) != O_RDONLY){
    	while (nwritten != sz) {
@@ -181,16 +200,18 @@ if((size_t) buf % sz != 0){
 	}
    }
    return nwritten;
+/*
 }else{
-     char* file_data = mmap(NULL, sz, PROT_READ | PROT_WRITE, MAP_SHARED, f->fd, 0);
+     // Not sure if you're suppose to use mmap for writing
+     
      size_t n = 0;
      while(n < sz){
-	memcpy(&file_data[n], buf, BUFSZ);
-	n += BUFSZ;
+	memcpy(&file_data[n], buf, f->file_size);
+	n += f->file_size;
      }
-     munmap(file_data, sz);
      return n;
 }
+*/
 }
 
 // io61_flush(f)
