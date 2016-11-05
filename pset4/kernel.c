@@ -93,6 +93,15 @@ void kernel(const char* command) {
         processes[i].p_state = P_FREE;
     }
 
+    /*  Step 1: Kernel isolation
+		-  kernel memory is inaccessible to apps (1st virtual map below)
+		-  exception case for CGA console (2nd virtual map below)
+    		-  *did not update sys_page_alloc to preserve kernel isolation
+    */
+    virtual_memory_map(kernel_pagetable, 0, 0, PROC_START_ADDR, PTE_P|PTE_W, NULL);
+    virtual_memory_map(kernel_pagetable, (uintptr_t) console,
+		       (uintptr_t) console, PAGESIZE, PTE_P|PTE_W|PTE_U, NULL);
+
     if (command && strcmp(command, "fork") == 0)
         process_setup(1, 4);
     else if (command && strcmp(command, "forkexit") == 0)
@@ -199,7 +208,7 @@ void exception(x86_64_registers* reg) {
         if (r >= 0)
             virtual_memory_map(current->p_pagetable, addr, addr,
                                PAGESIZE, PTE_P | PTE_W | PTE_U, NULL);
-        current->p_registers.reg_rax = r;
+	current->p_registers.reg_rax = r;
         break;
     }
 
