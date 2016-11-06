@@ -150,7 +150,6 @@ void copy_pagetable(x86_64_pagetable* pagetable, x86_64_pagetable* source, int8_
     memcpy((void *) pagetable, (void *) PTE_ADDR(source), PAGESIZE);
 }
 
-
 // process_setup(pid, program_number)
 //    Load application program `program_number` as process number `pid`.
 //    This loads the application's code and data into memory, sets its
@@ -178,8 +177,6 @@ void process_setup(pid_t pid, int program_number) {
                        PAGESIZE, PTE_P|PTE_W|PTE_U, NULL);
     processes[pid].p_state = P_RUNNABLE;
 }
-
-
 
 // assign_physical_page(addr, owner)
 //    Allocates the page with physical address `addr` to the given owner.
