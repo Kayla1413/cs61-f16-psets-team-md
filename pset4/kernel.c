@@ -93,14 +93,22 @@ void kernel(const char* command) {
         processes[i].p_state = P_FREE;
     }
 
-    /*  Step 1: Kernel isolation
-		-  kernel memory is inaccessible to apps (1st virtual map below)
-		-  exception case for CGA console (2nd virtual map below)
-    		-  *did not update sys_page_alloc to preserve kernel isolation
-    */
-    virtual_memory_map(kernel_pagetable, 0, 0, PROC_START_ADDR, PTE_P|PTE_W, NULL);
-    virtual_memory_map(kernel_pagetable, (uintptr_t) console,
-		       (uintptr_t) console, PAGESIZE, PTE_P|PTE_W|PTE_U, NULL);
+    //  Step 1: Kernel isolation
+    virtual_memory_map(kernel_pagetable, 
+			(uintptr_t) 0,   // VA
+			(uintptr_t)  0,  // PA
+			(uintptr_t) PROC_START_ADDR, 
+			PTE_P|PTE_W, NULL);
+    virtual_memory_map(kernel_pagetable, 
+			(uintptr_t) console, // VA
+		        (uintptr_t) console, // PA
+			PAGESIZE, 
+			PTE_P|PTE_W|PTE_U, NULL);
+    virtual_memory_map(kernel_pagetable, 
+			(uintptr_t) console + PAGESIZE, // VA
+			(uintptr_t) console + PAGESIZE, // PA
+			(uintptr_t) PROC_START_ADDR - (uintptr_t) console - PAGESIZE,
+			PTE_P|PTE_W, NULL);
 
     if (command && strcmp(command, "fork") == 0)
         process_setup(1, 4);
@@ -114,6 +122,36 @@ void kernel(const char* command) {
     run(&processes[1]);
 }
 
+// Step 2: Isolated Address Space (part a)
+// allocator(owner)
+//    Allocate an unused physical page and returns  physical address. 
+uintptr_t allocator(int8_t owner) {
+    // Find Free Page Table
+    uintptr_t unused_pa_addr;
+    for (int pn = 0; pn < NPAGES; ++pn) {
+	if(pageinfo[pn].owner == 0)
+		// get address ;
+	else
+		unused_pa_addr = -1;
+    }
+    if (unused_pa_addr == -1)
+	return -1;
+
+    // Assigned Page and Set Owner
+    // Return Address of Page
+}
+
+
+// Step 2: Isolated Address Space (part b)
+// copy_pagetable (pagetable, owner);
+//	Allocates and returns a new page table, which was initialized as a copy.
+
+x86_64_pagetable* copy_pagetable(x86_64_pagetable* pagetable, int8_t owner){
+    x86_64_pagetable *new_pagetable = (x86_64_pagetable *) allocator(owner);
+    memcpy(new_pagetable, pagetable, sizeof(/*need appropriate size*/)); 
+    return new_pagetable;
+}
+
 
 // process_setup(pid, program_number)
 //    Load application program `program_number` as process number `pid`.
@@ -122,15 +160,18 @@ void kernel(const char* command) {
 
 void process_setup(pid_t pid, int program_number) {
     process_init(&processes[pid], 0);
-    processes[pid].p_pagetable = kernel_pagetable;
-    ++pageinfo[PAGENUMBER(kernel_pagetable)].refcount;
+    processes[pid].p_pagetable = copy_pagetable(kernel_pagetable, pid);
+    ++pageinfo[PAGENUMBER(processes[pid].p_pagetable)].refcount;
     int r = program_load(&processes[pid], program_number, NULL);
     assert(r >= 0);
-    processes[pid].p_registers.reg_rsp = PROC_START_ADDR + PROC_SIZE * pid;
+    processes[pid].p_registers.reg_rsp = MEMSIZE_VIRTUAL;
     uintptr_t stack_page = processes[pid].p_registers.reg_rsp - PAGESIZE;
     assign_physical_page(stack_page, pid);
-    virtual_memory_map(processes[pid].p_pagetable, stack_page, stack_page,
-                       PAGESIZE, PTE_P | PTE_W | PTE_U, NULL);
+    virtual_memory_map(processes[pid].p_pagetable, 
+		      stack_page, // VA 
+		      stack_page, // PA
+		      PAGESIZE, 
+		      PTE_P | PTE_W | PTE_U, NULL);
     processes[pid].p_state = P_RUNNABLE;
 }
 
@@ -205,7 +246,7 @@ void exception(x86_64_registers* reg) {
     case INT_SYS_PAGE_ALLOC: {
         uintptr_t addr = current->p_registers.reg_rdi;
         int r = assign_physical_page(addr, current->p_pid);
-        if (r >= 0)
+	if (r >= 0)
             virtual_memory_map(current->p_pagetable, addr, addr,
                                PAGESIZE, PTE_P | PTE_W | PTE_U, NULL);
 	current->p_registers.reg_rax = r;
