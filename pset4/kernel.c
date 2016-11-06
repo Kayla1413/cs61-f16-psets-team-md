@@ -122,37 +122,18 @@ void kernel(const char* command) {
     run(&processes[1]);
 }
 
-/*
-// Step 2: Isolated Address Space (part a)
-// allocator(owner)
-//    Allocate an unused physical page and returns  physical address. 
-uintptr_t allocator(int8_t owner) {
-    // Find Free Page Table
-    uintptr_t unused_pa_addr;
-    for (int pn = 0; pn < NPAGES; ++pn) {
-	if(pageinfo[pn].owner == 0)
-		// get address ;
-	else
-		unused_pa_addr = -1;
-    }
-    if (unused_pa_addr == -1)
-	return -1;
-
-    // Assigned Page and Set Owner
-    // Return Address of Page
+// Step 3: Virtual page allocation
+//	Finds a free physical page using pageinfo
+//	Returns -1 if it can't find one
+uintptr_t use_any_physical_page(void){
+    int pn = 0;
+    for (;pageinfo[pn].refcount != 0; pn++) {
+	if(pn >= PAGENUMBER(MEMSIZE_PHYSICAL))
+	    return -1;
+    }	
+    return PAGEADDRESS(pn);
 }
 
-
-// Step 2: Isolated Address Space (part b)
-// copy_pagetable (pagetable, owner);
-//	Allocates and returns a new page table, which was initialized as a copy.
-
-x86_64_pagetable* copy_pagetable(x86_64_pagetable* pagetable, int8_t owner){
-    x86_64_pagetable *new_pagetable = (x86_64_pagetable *) allocator(owner);
-    memcpy(new_pagetable, pagetable, sizeof()); 
-    return new_pagetable;
-}
-*/
 
 // process_setup(pid, program_number)
 //    Load application program `program_number` as process number `pid`.
@@ -161,21 +142,16 @@ x86_64_pagetable* copy_pagetable(x86_64_pagetable* pagetable, int8_t owner){
 
 void process_setup(pid_t pid, int program_number) {
     process_init(&processes[pid], 0);
-//    processes[pid].p_pagetable = copy_pagetable(kernel_pagetable, pid);
-//    ++pageinfo[PAGENUMBER(processes[pid].p_pagetable)].refcount;
     processes[pid].p_pagetable = kernel_pagetable;
     ++pageinfo[PAGENUMBER(kernel_pagetable)].refcount;
-
     int r = program_load(&processes[pid], program_number, NULL);
     assert(r >= 0);
-//    processes[pid].p_registers.reg_rsp = MEMSIZE_VIRTUAL;
     processes[pid].p_registers.reg_rsp = PROC_START_ADDR + PROC_SIZE * pid;
-
     uintptr_t stack_page = processes[pid].p_registers.reg_rsp - PAGESIZE;
     assign_physical_page(stack_page, pid);
     virtual_memory_map(processes[pid].p_pagetable, 
-		      stack_page, // VA 
-		      stack_page, // PA
+		      stack_page,
+		      stack_page,
 		      PAGESIZE, 
 		      PTE_P | PTE_W | PTE_U, NULL);
     processes[pid].p_state = P_RUNNABLE;
@@ -250,11 +226,16 @@ void exception(x86_64_registers* reg) {
         break;                  /* will not be reached */
 
     case INT_SYS_PAGE_ALLOC: {
+	// Step 3: Virtual page allocation
         uintptr_t addr = current->p_registers.reg_rdi;
-        int r = assign_physical_page(addr, current->p_pid);
+        uintptr_t pa = use_any_physical_page();
+        int r = assign_physical_page(pa, current->p_pid);
 	if (r >= 0)
-            virtual_memory_map(current->p_pagetable, addr, addr,
-                               PAGESIZE, PTE_P | PTE_W | PTE_U, NULL);
+            virtual_memory_map(current->p_pagetable, 
+			       addr, // VA 
+			       pa,   // PA
+                               PAGESIZE, 
+			       PTE_P | PTE_W | PTE_U, NULL);
 	current->p_registers.reg_rax = r;
         break;
     }
