@@ -122,6 +122,7 @@ void kernel(const char* command) {
     run(&processes[1]);
 }
 
+/*
 // Step 2: Isolated Address Space (part a)
 // allocator(owner)
 //    Allocate an unused physical page and returns  physical address. 
@@ -148,10 +149,10 @@ uintptr_t allocator(int8_t owner) {
 
 x86_64_pagetable* copy_pagetable(x86_64_pagetable* pagetable, int8_t owner){
     x86_64_pagetable *new_pagetable = (x86_64_pagetable *) allocator(owner);
-    memcpy(new_pagetable, pagetable, sizeof(/*need appropriate size*/)); 
+    memcpy(new_pagetable, pagetable, sizeof()); 
     return new_pagetable;
 }
-
+*/
 
 // process_setup(pid, program_number)
 //    Load application program `program_number` as process number `pid`.
@@ -160,11 +161,16 @@ x86_64_pagetable* copy_pagetable(x86_64_pagetable* pagetable, int8_t owner){
 
 void process_setup(pid_t pid, int program_number) {
     process_init(&processes[pid], 0);
-    processes[pid].p_pagetable = copy_pagetable(kernel_pagetable, pid);
-    ++pageinfo[PAGENUMBER(processes[pid].p_pagetable)].refcount;
+//    processes[pid].p_pagetable = copy_pagetable(kernel_pagetable, pid);
+//    ++pageinfo[PAGENUMBER(processes[pid].p_pagetable)].refcount;
+    processes[pid].p_pagetable = kernel_pagetable;
+    ++pageinfo[PAGENUMBER(kernel_pagetable)].refcount;
+
     int r = program_load(&processes[pid], program_number, NULL);
     assert(r >= 0);
-    processes[pid].p_registers.reg_rsp = MEMSIZE_VIRTUAL;
+//    processes[pid].p_registers.reg_rsp = MEMSIZE_VIRTUAL;
+    processes[pid].p_registers.reg_rsp = PROC_START_ADDR + PROC_SIZE * pid;
+
     uintptr_t stack_page = processes[pid].p_registers.reg_rsp - PAGESIZE;
     assign_physical_page(stack_page, pid);
     virtual_memory_map(processes[pid].p_pagetable, 
