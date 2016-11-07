@@ -164,6 +164,7 @@ x86_64_pagetable* copy_pagetable2(x86_64_pagetable* pagetable, int8_t owner) {
 
 // copy pagetable
 void copy_pagetable(x86_64_pagetable* pagetable, x86_64_pagetable* source, int8_t owner) {
+	log_printf("source is %d\n" , source);
     memcpy((void *) pagetable, (void *) PTE_ADDR(source), sizeof(x86_64_pagetable));
 }
 
@@ -210,25 +211,23 @@ void process_setup(pid_t pid, int program_number) {
     processes[pid].p_pagetable = (x86_64_pagetable *) address;
 	processes[pid].p_pagetable->entry[0] = (x86_64_pageentry_t) (address_l1) | PTE_P | PTE_W | PTE_U;
 
-	((x86_64_pagetable*) address_l1)->entry[0] = (x86_64_pageentry_t) address_l2 | PTE_P | PTE_W | PTE_U;
-	copy_pagetable((x86_64_pagetable*) (address_l1), (x86_64_pagetable*) kernel_pagetable->entry[0], pid);
 	
- 	x86_64_pagetable* kernel_entry = ((x86_64_pagetable*)kernel_pagetable->entry[0]);
+	copy_pagetable((x86_64_pagetable*) (address_l1), (x86_64_pagetable*) kernel_pagetable->entry[0], pid);
+	((x86_64_pagetable*) address_l1)->entry[0] = (x86_64_pageentry_t) address_l2 | PTE_P | PTE_W | PTE_U;
+	
+ 	x86_64_pagetable* kernel_entry = ((x86_64_pagetable*)372775);
+	copy_pagetable((x86_64_pagetable*) (address_l2), (x86_64_pagetable*) kernel_entry, pid);
+	((x86_64_pagetable*) address_l2)->entry[0] = (x86_64_pageentry_t) address_l3 | PTE_P | PTE_W | PTE_U;	
 
-	((x86_64_pagetable*) address_l2)->entry[0] = (x86_64_pageentry_t) address_l3 | PTE_P | PTE_W | PTE_U;
-	copy_pagetable((x86_64_pagetable*) (address_l2), (x86_64_pagetable*) kernel_entry->entry[0], pid);	
-
-	x86_64_pagetable* kernel_entry2 = ((x86_64_pagetable*)kernel_entry->entry[0]);
-
-	((x86_64_pagetable*) address_l3)->entry[0] = (x86_64_pageentry_t) address_l3 | PTE_P | PTE_W | PTE_U;
-	copy_pagetable((x86_64_pagetable*) (address_l3), (x86_64_pagetable*) kernel_entry2->entry[0], pid);	
-
-    //copy_pagetable((x86_64_pagetable*) (address_l1), (x86_64_pagetable*) kernel_pagetable->entry[0], pid);
+	x86_64_pagetable* kernel_entry2 = ((x86_64_pagetable*)376871);
+	copy_pagetable((x86_64_pagetable*) (address_l3), (x86_64_pagetable*) kernel_entry2, pid);
+	((x86_64_pagetable*) address_l3)->entry[0] = (x86_64_pageentry_t) address | PTE_P | PTE_W | PTE_U;	
 	
     virtual_memory_map(processes[pid].p_pagetable, PROC_START_ADDR, PROC_START_ADDR, MEMSIZE_PHYSICAL- PROC_START_ADDR, 0, NULL);
+
  	//log_printf("owner is %d\n" , pageinfo[PAGENUMBER(processes[pid].p_pagetable)].owner);
     int r = program_load(&processes[pid], program_number, NULL);
-//log_printf("r is %d\n" , r);
+
     assert(r >= 0);
     processes[pid].p_registers.reg_rsp = MEMSIZE_VIRTUAL;
     //uintptr_t stack_page = find_free_pagetable(); 
@@ -466,9 +465,10 @@ void check_page_table_ownership(x86_64_pagetable* pt, pid_t pid) {
 static void check_page_table_ownership_level(x86_64_pagetable* pt, int level,
                                              int owner, int refcount) {
     assert(PAGENUMBER(pt) < NPAGES);
-	//log_printf("pageinfo owner is %d\n" , pageinfo[PAGENUMBER(pt)].owner);
-	//log_printf("owner is %d\n" , owner);
-	//log_printf("PAGENUMBER(pt) is %d\n" , PAGENUMBER(pt));
+	log_printf("pt is %d\n" , pt);
+	log_printf("pageinfo owner is %d\n" , pageinfo[PAGENUMBER(pt)].owner);
+	log_printf("owner is %d\n" , owner);
+	log_printf("PAGENUMBER(pt) is %d\n" , PAGENUMBER(pt));
 	//log_printf("level is %d\n" , level);
 
     assert(pageinfo[PAGENUMBER(pt)].owner == owner);
