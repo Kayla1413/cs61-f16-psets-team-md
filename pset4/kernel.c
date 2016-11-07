@@ -208,6 +208,11 @@ void process_setup(pid_t pid, int program_number) {
 	memset((void*)address_l3, 0, PAGESIZE);
 	log_printf("address_l3 is %d\n" , address_l3);
 
+	uintptr_t address_l4 = find_free_pagetable();
+	assign_physical_page(address_l4, pid);
+	memset((void*)address_l4, 0, PAGESIZE);
+	log_printf("address_l4 is %d\n" , address_l4);
+
     processes[pid].p_pagetable = (x86_64_pagetable *) address;
 	processes[pid].p_pagetable->entry[0] = (x86_64_pageentry_t) (address_l1) | PTE_P | PTE_W | PTE_U;
 
@@ -221,7 +226,7 @@ void process_setup(pid_t pid, int program_number) {
 
 	x86_64_pagetable* kernel_entry2 = ((x86_64_pagetable*)376871);
 	copy_pagetable((x86_64_pagetable*) (address_l3), (x86_64_pagetable*) kernel_entry2, pid);
-	((x86_64_pagetable*) address_l3)->entry[0] = (x86_64_pageentry_t) address | PTE_P | PTE_W | PTE_U;	
+	((x86_64_pagetable*) address_l2)->entry[1] = (x86_64_pageentry_t) address_l4 | PTE_P | PTE_W | PTE_U;	
 	
     virtual_memory_map(processes[pid].p_pagetable, PROC_START_ADDR, PROC_START_ADDR, MEMSIZE_PHYSICAL- PROC_START_ADDR, 0, NULL);
 
@@ -465,11 +470,6 @@ void check_page_table_ownership(x86_64_pagetable* pt, pid_t pid) {
 static void check_page_table_ownership_level(x86_64_pagetable* pt, int level,
                                              int owner, int refcount) {
     assert(PAGENUMBER(pt) < NPAGES);
-	log_printf("pt is %d\n" , pt);
-	log_printf("pageinfo owner is %d\n" , pageinfo[PAGENUMBER(pt)].owner);
-	log_printf("owner is %d\n" , owner);
-	log_printf("PAGENUMBER(pt) is %d\n" , PAGENUMBER(pt));
-	//log_printf("level is %d\n" , level);
 
     assert(pageinfo[PAGENUMBER(pt)].owner == owner);
     assert(pageinfo[PAGENUMBER(pt)].refcount == refcount);
@@ -526,7 +526,6 @@ void check_virtual_memory(void) {
     // Check that all referenced pages refer to active processes
     for (int pn = 0; pn < PAGENUMBER(MEMSIZE_PHYSICAL); ++pn)
         if (pageinfo[pn].refcount > 0 && pageinfo[pn].owner >= 0) {
-			log_printf("processes[pageinfo[pn].owner].p_state is %d\n" , processes[pageinfo[pn].owner].p_state);
             assert(processes[pageinfo[pn].owner].p_state != P_FREE);
 		}
 			
