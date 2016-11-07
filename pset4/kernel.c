@@ -313,6 +313,12 @@ void exception(x86_64_registers* reg) {
 	// Step 3: Virtual page allocation
         uintptr_t addr = current->p_registers.reg_rdi;
         uintptr_t pa = use_any_physical_page();
+	/* Need to handle cases where there are no free pages
+	if(pa == -1) {
+		current->p_registers.reg_rdi = -1;
+		break;
+	}
+	*/
         int r = assign_physical_page(pa, current->p_pid);
 	if (r >= 0)
             virtual_memory_map(current->p_pagetable, 
@@ -321,7 +327,11 @@ void exception(x86_64_registers* reg) {
                                PAGESIZE, 
 			       PTE_P | PTE_W | PTE_U, NULL);
 	current->p_registers.reg_rax = r;
-        break;
+        /* also need to maintain ownership of page
+	   that was process can't touch the ones kernel owns
+	   pageinfo[pa].owner = current->p_pid;
+	*/
+	break;
     }
 
     case INT_TIMER:
