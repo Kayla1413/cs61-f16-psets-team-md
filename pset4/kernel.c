@@ -173,6 +173,7 @@ void copy_pagetable(x86_64_pagetable* pagetable, x86_64_pagetable* source, int8_
 //    %rip and %rsp, gives it a stack page, and marks it as runnable.
 
 void process_setup(pid_t pid, int program_number) {
+	processes[pid].p_state = P_RUNNABLE;
 	
 	log_printf("pid is %d\n" , pid);
 	//log_printf("program_number is %d\n" , program_number);
@@ -235,7 +236,6 @@ void process_setup(pid_t pid, int program_number) {
 	
     //virtual_memory_map(processes[pid].p_pagetable, MEMSIZE_VIRTUAL - PAGESIZE, stack_page,
                        //PAGESIZE, PTE_P|PTE_W|PTE_U, NULL);
-    processes[pid].p_state = P_RUNNABLE;
 }
 
 // assign_physical_page(addr, owner)
@@ -522,11 +522,14 @@ void check_virtual_memory(void) {
 			log_printf("page_table being passed is %d\n" , processes[pid].p_pagetable);
             check_page_table_ownership(processes[pid].p_pagetable, pid);
         }
-
+	
     // Check that all referenced pages refer to active processes
     for (int pn = 0; pn < PAGENUMBER(MEMSIZE_PHYSICAL); ++pn)
-        if (pageinfo[pn].refcount > 0 && pageinfo[pn].owner >= 0)
+        if (pageinfo[pn].refcount > 0 && pageinfo[pn].owner >= 0) {
+			log_printf("processes[pageinfo[pn].owner].p_state is %d\n" , processes[pageinfo[pn].owner].p_state);
             assert(processes[pageinfo[pn].owner].p_state != P_FREE);
+		}
+			
 
 }
 
