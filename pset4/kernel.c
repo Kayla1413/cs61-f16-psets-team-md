@@ -311,6 +311,10 @@ void exception(x86_64_registers* reg) {
 
     case INT_SYS_PAGE_ALLOC: {
 	// Step 3: Virtual page allocation
+	// instructions say apps shouldn't be able to run this at all
+	if(current->p_pid != -2) {
+		break;	
+	}
         uintptr_t addr = current->p_registers.reg_rdi;
         uintptr_t pa = use_any_physical_page();
 	/* Need to handle cases where there are no free pages
