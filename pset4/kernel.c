@@ -156,9 +156,14 @@ void copy_pagetable(x86_64_pagetable* pagetable, x86_64_pagetable* source, int8_
 //    %rip and %rsp, gives it a stack page, and marks it as runnable.
 
 void process_setup(pid_t pid, int program_number) {
+	log_printf("pid is %d\n" , pid);
+	log_printf("program_number is %d\n" , program_number);
+	
     process_init(&processes[pid], 0);
 
     uintptr_t address = find_free_pagetable();
+	log_printf("address is %d\n" , address);
+
     assign_physical_page(address, pid);
     memset((void*)address, 0, PAGESIZE);
     assign_physical_page(address + PAGESIZE, pid);
@@ -167,8 +172,9 @@ void process_setup(pid_t pid, int program_number) {
     processes[pid].p_pagetable->entry[0] = (x86_64_pageentry_t) (address + PAGESIZE) | PTE_P | PTE_W | PTE_U;
     copy_pagetable((x86_64_pagetable*) (address + PAGESIZE), (x86_64_pagetable*) kernel_pagetable->entry[0], pid);
     virtual_memory_map(processes[pid].p_pagetable, PROC_START_ADDR, PROC_START_ADDR, MEMSIZE_PHYSICAL- PROC_START_ADDR, 0, NULL);
- 
+ 	log_printf("owner is %d\n" , pageinfo[PAGENUMBER(processes[pid].p_pagetable)].owner);
     int r = program_load(&processes[pid], program_number, NULL);
+//log_printf("r is %d\n" , r);
     assert(r >= 0);
     processes[pid].p_registers.reg_rsp = MEMSIZE_VIRTUAL;
     uintptr_t stack_page = find_free_pagetable(); 
@@ -406,6 +412,8 @@ void check_page_table_ownership(x86_64_pagetable* pt, pid_t pid) {
 static void check_page_table_ownership_level(x86_64_pagetable* pt, int level,
                                              int owner, int refcount) {
     assert(PAGENUMBER(pt) < NPAGES);
+	log_printf("pageinfo owner is %d\n" , pageinfo[PAGENUMBER(pt)].owner);
+	log_printf("owner is %d\n" , owner);
     assert(pageinfo[PAGENUMBER(pt)].owner == owner);
     assert(pageinfo[PAGENUMBER(pt)].refcount == refcount);
     if (level < 3)
@@ -437,6 +445,7 @@ void check_virtual_memory(void) {
     check_page_table_ownership(kernel_pagetable, -1);
 
     for (int pid = 0; pid < NPROC; ++pid)
+		
         if (processes[pid].p_state != P_FREE
             && processes[pid].p_pagetable != kernel_pagetable) {
             check_page_table_mappings(processes[pid].p_pagetable);
