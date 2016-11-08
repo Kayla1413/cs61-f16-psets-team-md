@@ -30,7 +30,7 @@ static unsigned ticks;          // # timer interrupts so far
 
 void schedule(void);
 void run(proc* p) __attribute__((noreturn));
-static void fork(void);
+
 
 // PAGEINFO
 //
@@ -236,7 +236,8 @@ int fork(x86_64_registers* reg) {
             return -1;
     }
 
-    processes[index].p_pagetable =  use_any_physical_page();
+    uintptr_t address = use_any_physical_page();
+    processes[index].p_pagetable = (x86_64_pagetable *)  address;
     assign_physical_page(address, processes[index].p_pid);
     memset((void*)address, 0, PAGESIZE);
     
@@ -249,7 +250,7 @@ int fork(x86_64_registers* reg) {
             // Copy data from the parents page into new physical page
             memcpy((void*) new_addr, (void*) vmap.pa, PAGESIZE);
             // Map physical page at virtual address to child process page table
-            virtual_memory_map(processes[index].p_pagetable, addr, new_addr,
+            virtua_memory_map(processes[index].p_pagetable, addr, new_addr,
                                PAGESIZE, PTE_P|PTE_W|PTE_U, NULL);
             
         }
@@ -259,14 +260,14 @@ int fork(x86_64_registers* reg) {
     processes[index].p_registers = current->p_registers;
 
     // Set child values
-    processes[index].p_registers.reg_rax = 0;
+    processes[index].p_registers.reg_rsp = 0;
     processes[index].p_pid = index;
     processes[index].p_state = P_RUNNABLE;
 
     return 0;
 }
 
-
+/*
 // Step 5: Fork
 // fork()
 //    Sys call that copies the calling process, creating a 2nd
@@ -281,7 +282,7 @@ static void fork(void) {
             return -1;
     }
 
-    /* 1. Look for free process slot */
+
     int free_slot;
     for(int slot = 1; slot < NPROC; ++slot){
 	if(processes[slot].p_state == P_FREE){
@@ -292,7 +293,7 @@ static void fork(void) {
 	   // return -1; 
 	}
     }
-
+*/
 
     /* 2. Make a copy of the current pagetable, the forking process's page table 
        3. Must copy the process data that is shared between two processes
@@ -315,7 +316,7 @@ processes[free_slot].p_registers.reg_rsp = 0;
 return 0;
     */
  
-}
+//}
 
 // exception(reg)
 //    Exception handler (for interrupts, traps, and faults).
@@ -409,14 +410,15 @@ void exception(x86_64_registers* reg) {
         current->p_state = P_BROKEN;
         break;
     }
-    /*
+  
     // Step 5: Fork
     // Handler for instances in which system call, fork() is called.
     case INT_SYS_FORK: {
-	fork();
+	current->p_registers.reg_rsp = fork(reg);
+	run(current);
 	break;
     }
-    */
+  
     default:
         panic("Unexpected exception %d!\n", reg->reg_intno);
         break;                  /* will not be reached */
