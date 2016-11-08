@@ -143,6 +143,7 @@ void copy_pagetable(x86_64_pagetable* copied_pagetable,
 	   sizeof(x86_64_pagetable));
 }
 
+
 // process_setup(pid, program_number)
 //    Load application program `program_number` as process number `pid`.
 //    This loads the application's code and data into memory, sets its
@@ -321,6 +322,12 @@ void exception(x86_64_registers* reg) {
         break;
     }
 
+    // Step 5: Fork
+    // Handler for instances in which system call, fork() is called.
+    case INT_SYS_FORK: {
+	break;
+    }
+    
     default:
         panic("Unexpected exception %d!\n", reg->reg_intno);
         break;                  /* will not be reached */
