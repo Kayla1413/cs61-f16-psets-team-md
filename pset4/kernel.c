@@ -136,8 +136,7 @@ uintptr_t use_any_physical_page(void){
 //    Copies the address of one page table into another.
 
 void copy_pagetable(x86_64_pagetable* copied_pagetable, 
-		    x86_64_pagetable* intial_pagetable, 
-		    int8_t owner) {
+		    x86_64_pagetable* intial_pagetable) {
     memcpy((void *) copied_pagetable, 
 	   (void *) PTE_ADDR(intial_pagetable), 
 	   sizeof(x86_64_pagetable));
@@ -156,7 +155,7 @@ void process_setup(pid_t pid, int program_number) {
     memset((void*)address, 0, PAGESIZE);
 
     /* Create new page table for process */
-    uintptr_t address_l1 = use_any_physical_page();;
+    uintptr_t address_l1 = use_any_physical_page();
     assign_physical_page(address_l1, pid);
     memset((void*)address_l1, 0, PAGESIZE);
 
@@ -177,18 +176,18 @@ void process_setup(pid_t pid, int program_number) {
     processes[pid].p_pagetable->entry[0] = 
 	(x86_64_pageentry_t) (address_l1) | PTE_P | PTE_W | PTE_U;
     copy_pagetable((x86_64_pagetable*) (address_l1), 
-		   (x86_64_pagetable*) kernel_pagetable->entry[0], pid);
+		   (x86_64_pagetable*) kernel_pagetable->entry[0]);
     
     ((x86_64_pagetable*) address_l1)->entry[0] = 
 		(x86_64_pageentry_t) address_l2 | PTE_P | PTE_W | PTE_U;
     x86_64_pagetable* kernel_entry = ((x86_64_pagetable*)372775);
     copy_pagetable((x86_64_pagetable*) (address_l2), 
-		   (x86_64_pagetable*) kernel_entry, pid);
+		   (x86_64_pagetable*) kernel_entry);
     ((x86_64_pagetable*) address_l2)->entry[0] =
 	 (x86_64_pageentry_t) address_l3 | PTE_P | PTE_W | PTE_U;	
     x86_64_pagetable* kernel_entry2 = ((x86_64_pagetable*)376871);
     copy_pagetable((x86_64_pagetable*) (address_l3), 
-		   (x86_64_pagetable*) kernel_entry2, pid);
+		   (x86_64_pagetable*) kernel_entry2);
     ((x86_64_pagetable*) address_l2)->entry[1] =
 	 (x86_64_pageentry_t) address_l4 | PTE_P | PTE_W | PTE_U;	
     
@@ -243,23 +242,31 @@ static void fork(void) {
 	    break;
 	}else{
 	    // This mean the slot is reserved or used by kernel. 
-	    free_slot = -1; 
-	    // Need to update this so -1 is loaded in memory.
+	   // return -1; 
 	}
     }
 
-    /* 2. Need to create a new proc to use for copying */
 
-    /* 3. Make a copy of the current pagetable,
-    /  the forking process's page table */
-    //copy_pagetable(current->p_pagetable, /* not sure */, current->p_pid);
+    /* 2. Make a copy of the current pagetable, the forking process's page table 
+       3. Must copy the process data that is shared between two processes
+       4. Child's process's registers are initialized as a copy
+       5. Use virtual memory lookup to query the mapping of VAs and PAs
 
-    // 4. Must copy the process data shared by the two processes
-    //		- Should not share any writable memory except the console
-  
-    // 5. Child process's registers are initialized as a copy
+// Creating processes to use
+proc *child = &processes[free_slot];
+proc *parent = current;
 
-    // 6. Use virtual_memory_lookup to query the mapping of VAs and PAs
+// This is for number 2 above
+processes[free_slot].p_pagetable = copy_pagetable(table, current->p_pagetable, current->p_pid);
+
+// This is for number 4 above
+processes[free_slot].p_pid = 
+processes[free_slot].p_state = P_RUNNABLE;
+processes[free_slot].p_registers = current->p_registers;
+processes[free_slot].p_registers.reg_rsp = 0; 
+
+return 0;
+    */
  
 }
 
