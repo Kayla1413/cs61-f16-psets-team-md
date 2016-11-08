@@ -227,6 +227,45 @@ int assign_physical_page(uintptr_t addr, int8_t owner) {
     }
 }
 
+int fork(x86_64_registers* reg) {
+    current->p_registers = *reg;
+    int index = 1;
+    while (processes[index].p_state != P_FREE) {
+        index++;
+        if (index > NPROC)
+            return -1;
+    }
+
+    processes[index].p_pagetable =  use_any_physical_page();
+    assign_physical_page(address, processes[index].p_pid);
+    memset((void*)address, 0, PAGESIZE);
+    
+    for (int addr = PROC_START_ADDR; addr < MEMSIZE_PHYSICAL; addr += PAGESIZE) {
+        vamapping vmap = virtual_memory_lookup(current->p_pagetable, addr);
+        if ((vmap.perm & (PTE_W | PTE_P | PTE_U)) == (PTE_P|PTE_U|PTE_W)) {
+            
+            uintptr_t new_addr = use_any_physical_page();
+       
+            // Copy data from the parents page into new physical page
+            memcpy((void*) new_addr, (void*) vmap.pa, PAGESIZE);
+            // Map physical page at virtual address to child process page table
+            virtual_memory_map(processes[index].p_pagetable, addr, new_addr,
+                               PAGESIZE, PTE_P|PTE_W|PTE_U, NULL);
+            
+        }
+    }
+
+    // Copy parent processes's registers into child
+    processes[index].p_registers = current->p_registers;
+
+    // Set child values
+    processes[index].p_registers.reg_rax = 0;
+    processes[index].p_pid = index;
+    processes[index].p_state = P_RUNNABLE;
+
+    return 0;
+}
+
 
 // Step 5: Fork
 // fork()
@@ -234,6 +273,14 @@ int assign_physical_page(uintptr_t addr, int8_t owner) {
 //    that is identical to the process that called fork.
 
 static void fork(void) {
+	//check if no physical memory available
+	int index = 1;
+    while (processes[index].p_state != P_FREE) {
+        index++;
+        if (index > NPROC)
+            return -1;
+    }
+
     /* 1. Look for free process slot */
     int free_slot;
     for(int slot = 1; slot < NPROC; ++slot){
