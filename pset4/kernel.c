@@ -235,11 +235,11 @@ void process_setup(pid_t pid, int program_number) {
 
     assert(r >= 0);
     processes[pid].p_registers.reg_rsp = MEMSIZE_VIRTUAL;
-    //uintptr_t stack_page = find_free_pagetable(); 
-    //assign_physical_page(stack_page, pid);
+    uintptr_t stack_page = find_free_pagetable(); 
+    assign_physical_page(stack_page, pid);
 	
-    //virtual_memory_map(processes[pid].p_pagetable, MEMSIZE_VIRTUAL - PAGESIZE, stack_page,
-                       //PAGESIZE, PTE_P|PTE_W|PTE_U, NULL);
+    virtual_memory_map(processes[pid].p_pagetable, MEMSIZE_VIRTUAL - PAGESIZE, stack_page,
+			PAGESIZE, PTE_P|PTE_W|PTE_U, NULL);
 }
 
 // assign_physical_page(addr, owner)
@@ -312,9 +312,7 @@ void exception(x86_64_registers* reg) {
     case INT_SYS_PAGE_ALLOC: {
 	// Step 3: Virtual page allocation
 	// instructions say apps shouldn't be able to run this at all
-	if(current->p_pid != -2) {
-		break;	
-	}
+	
         uintptr_t addr = current->p_registers.reg_rdi;
         uintptr_t pa = use_any_physical_page();
 	/* Need to handle cases where there are no free pages
@@ -324,7 +322,7 @@ void exception(x86_64_registers* reg) {
 	}
 	*/
         int r = assign_physical_page(pa, current->p_pid);
-	if (r >= 0)
+	if (r >= 0) {
             virtual_memory_map(current->p_pagetable, 
 			       addr, // VA 
 			       pa,   // PA
@@ -335,6 +333,8 @@ void exception(x86_64_registers* reg) {
 	   that was process can't touch the ones kernel owns
 	   pageinfo[pa].owner = current->p_pid;
 	*/
+	}
+	current->p_registers.reg_rax = -1;
 	break;
     }
 
