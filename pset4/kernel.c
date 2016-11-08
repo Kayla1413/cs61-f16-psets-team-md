@@ -30,7 +30,7 @@ static unsigned ticks;          // # timer interrupts so far
 
 void schedule(void);
 void run(proc* p) __attribute__((noreturn));
-
+static void fork(void);
 
 // PAGEINFO
 //
@@ -229,6 +229,40 @@ int assign_physical_page(uintptr_t addr, int8_t owner) {
 }
 
 
+// Step 5: Fork
+// fork()
+//    Sys call that copies the calling process, creating a 2nd
+//    that is identical to the process that called fork.
+
+static void fork(void) {
+    /* 1. Look for free process slot */
+    int free_slot;
+    for(int slot = 1; slot < NPROC; ++slot){
+	if(processes[slot].p_state == P_FREE){
+	    free_slot = slot;
+	    break;
+	}else{
+	    // This mean the slot is reserved or used by kernel. 
+	    free_slot = -1; 
+	    // Need to update this so -1 is loaded in memory.
+	}
+    }
+
+    /* 2. Need to create a new proc to use for copying */
+
+    /* 3. Make a copy of the current pagetable,
+    /  the forking process's page table */
+    //copy_pagetable(current->p_pagetable, /* not sure */, current->p_pid);
+
+    // 4. Must copy the process data shared by the two processes
+    //		- Should not share any writable memory except the console
+  
+    // 5. Child process's registers are initialized as a copy
+
+    // 6. Use virtual_memory_lookup to query the mapping of VAs and PAs
+ 
+}
+
 // exception(reg)
 //    Exception handler (for interrupts, traps, and faults).
 //
@@ -321,13 +355,14 @@ void exception(x86_64_registers* reg) {
         current->p_state = P_BROKEN;
         break;
     }
-
+    /*
     // Step 5: Fork
     // Handler for instances in which system call, fork() is called.
     case INT_SYS_FORK: {
+	fork();
 	break;
     }
-    
+    */
     default:
         panic("Unexpected exception %d!\n", reg->reg_intno);
         break;                  /* will not be reached */
