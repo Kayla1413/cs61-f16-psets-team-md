@@ -282,14 +282,20 @@ void exception(x86_64_registers* reg) {
         uintptr_t addr = current->p_registers.reg_rdi;
         uintptr_t pa = use_any_physical_page();
         int r = assign_physical_page(pa, current->p_pid);
-	if (r >= 0) 
+	if (r >= 0) { 
             virtual_memory_map(current->p_pagetable, 
 			       addr, // VA 
 			       pa,   // PA
                                PAGESIZE, 
 			       PTE_P | PTE_W | PTE_U, NULL);
 	current->p_registers.reg_rax = r;
-	break;
+	} 
+	/* Step 4: Overlapping address spaces */
+	else {
+	current->p_registers.reg_rax = -1;
+	log_printf("Out of physical memory!");
+	}
+        break;
     }
 
     case INT_TIMER:
