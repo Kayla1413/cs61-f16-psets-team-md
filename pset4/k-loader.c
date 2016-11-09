@@ -97,7 +97,11 @@ static int program_load_segment(proc* p, const elf_program* ph,
     // copy data from executable image into process memory
     memcpy((uint8_t*) va, src, end_file - va);
     memset((uint8_t*) end_file, 0, end_mem - end_file);
-
+	
+	if ((ph->p_flags & ELF_PFLAG_WRITE) == 0) {
+		virtual_memory_map(p->p_pagetable, va, ph->p_pa, PAGESIZE,
+                                  PTE_P|PTE_U, allocator);
+	}
     // restore kernel pagetable
     set_pagetable(kernel_pagetable);
     return 0;
