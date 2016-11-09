@@ -250,7 +250,7 @@ int fork(x86_64_registers* reg) {
             // Copy data from the parents page into new physical page
             memcpy((void*) new_addr, (void*) vmap.pa, PAGESIZE);
             // Map physical page at virtual address to child process page table
-            virtua_memory_map(processes[index].p_pagetable, addr, new_addr,
+            virtual_memory_map(processes[index].p_pagetable, addr, new_addr,
                                PAGESIZE, PTE_P|PTE_W|PTE_U, NULL);
             
         }
