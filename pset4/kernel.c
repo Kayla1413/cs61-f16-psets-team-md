@@ -233,14 +233,35 @@ int assign_physical_page(uintptr_t addr, int8_t owner) {
     }
 }
 
+int sys_exit(pid_t pid)
+{  
+	//fre memory from kernel page
+    for(uintptr_t va = 0; va < MEMSIZE_VIRTUAL; va += PAGESIZE) {
+      vamapping vam = virtual_memory_lookup(kernel_pagetable, va);
+
+        if(pageinfo[vam.pn].owner == pid) {
+            pageinfo[vam.pn].owner = PO_FREE;
+            pageinfo[vam.pn].refcount = 0;
+        }
+
+        if (va == PROC_START_ADDR){
+            if (pageinfo[vam.pn].refcount > 1 && pageinfo[vam.pn].owner > 0) {
+                // Decrease the refcount of the shared page
+	           pageinfo[vam.pn].refcount --;
+	       }    
+        }
+    } 
+    // mark process as free:
+    processes[pid].p_state = P_FREE;
+    return 0;
+}
+
 pid_t fork(void) {
 
     // look for a free slot:
-    for(int child = 1; child < NPROC; child++)
-    {
+    for(int child = 1; child < NPROC; child++) {
 		//log_printf("child is %d\n", child);
-        if(processes[child].p_state == P_FREE && child != 0)
-        { 
+        if(processes[child].p_state == P_FREE && child != 0) { 
 			// set state to runnable
             processes[child].p_state = P_RUNNABLE;
             // copy pagetable
@@ -248,30 +269,23 @@ pid_t fork(void) {
             processes[child].p_pagetable = (x86_64_pagetable *) address;
 	    
     	    // check if no more memory
-    	    if (!processes[child].p_pagetable)
-            {
+    	    if (!processes[child].p_pagetable) {
+				sys_exit(child);
     	        return -1;
     	    }
 	    
             // copy parent's data
-            for(uintptr_t va = PROC_START_ADDR; va < MEMSIZE_VIRTUAL; va += PAGESIZE)
-            {
+            for(uintptr_t va = PROC_START_ADDR; va < MEMSIZE_VIRTUAL; va += PAGESIZE) {
                 vamapping vam = virtual_memory_lookup(current -> p_pagetable, va);
                 // Step 6: Shared read-only memory
-              
-	            if (va == PROC_START_ADDR)
-                {
-                    if (pageinfo[vam.pn].refcount > 0 && pageinfo[vam.pn].owner > 0)
-                    {
+	            if (va == PROC_START_ADDR) {
+                    if (pageinfo[vam.pn].refcount > 0 && pageinfo[vam.pn].owner > 0) {
         		        pageinfo[vam.pn].refcount++;
                         virtual_memory_map(processes[child].p_pagetable, va, vam.pa,PAGESIZE, PTE_P | PTE_W | PTE_U, NULL);
                     } 
-                }
-                else
-                {
+                } else {
                   
-                    if(vam.perm)
-                    { 
+                    if(vam.perm) { 
         		        uintptr_t pn_addr = use_any_physical_page(); 
 						int pn = assign_physical_page(pn_addr, child);
                         void* page = (void*) PAGEADDRESS(pn);
@@ -291,9 +305,10 @@ pid_t fork(void) {
         return child;
         } 
     } 
-
     return -1;
 }
+
+
 
 /*
 // Step 5: Fork
