@@ -233,44 +233,66 @@ int assign_physical_page(uintptr_t addr, int8_t owner) {
     }
 }
 
-int fork(x86_64_registers* reg) {
-    current->p_registers = *reg;
-    int index = 1;
-    while (processes[index].p_state != P_FREE) {
-        index++;
-        if (index > NPROC)
-            return -1;
-    }
+pid_t fork(void) {
 
-    uintptr_t address = setup_pagetable(current->p_pid);
-    processes[index].p_pagetable = (x86_64_pagetable *)  address;
-    assign_physical_page(address, processes[index].p_pid);
-    memset((void*)address, 0, PAGESIZE);
-    
-    for (int addr = PROC_START_ADDR; addr < MEMSIZE_PHYSICAL; addr += PAGESIZE) {
-        vamapping vmap = virtual_memory_lookup(current->p_pagetable, addr);
-        if ((vmap.perm & (PTE_W | PTE_P | PTE_U)) == (PTE_P|PTE_U|PTE_W)) {
-            
-            uintptr_t new_addr = use_any_physical_page();
-       
-            // Copy data from the parents page into new physical page
-            memcpy((void*) new_addr, (void*) vmap.pa, PAGESIZE);
-            // Map physical page at virtual address to child process page table
-            virtual_memory_map(processes[index].p_pagetable, addr, new_addr,
-                               PAGESIZE, PTE_P|PTE_W|PTE_U, NULL);
-            
-        }
-    }
+    // look for a free slot:
+    for(int child = 1; child < NPROC; child++)
+    {
+		//log_printf("child is %d\n", child);
+        if(processes[child].p_state == P_FREE && child != 0)
+        { 
+			// set state to runnable
+            processes[child].p_state = P_RUNNABLE;
+            // copy pagetable
+			uintptr_t address = setup_pagetable(child);
+            processes[child].p_pagetable = (x86_64_pagetable *) address;
+	    
+    	    // check if no more memory
+    	    if (!processes[child].p_pagetable)
+            {
+    	        return -1;
+    	    }
+	    
+            // copy parent's data
+            for(uintptr_t va = PROC_START_ADDR; va < MEMSIZE_VIRTUAL; va += PAGESIZE)
+            {
+                vamapping vam = virtual_memory_lookup(current -> p_pagetable, va);
+                // Step 6: Shared read-only memory
+              
+	            if (va == PROC_START_ADDR)
+                {
+                    if (pageinfo[vam.pn].refcount > 0 && pageinfo[vam.pn].owner > 0)
+                    {
+        		        pageinfo[vam.pn].refcount++;
+                        virtual_memory_map(processes[child].p_pagetable, va, vam.pa,PAGESIZE, PTE_P | PTE_W | PTE_U, NULL);
+                    } 
+                }
+                else
+                {
+                  
+                    if(vam.perm)
+                    { 
+        		        uintptr_t pn_addr = use_any_physical_page(); 
+						int pn = assign_physical_page(pn_addr, child);
+                        void* page = (void*) PAGEADDRESS(pn);
+                        memcpy(page, (void*) vam.pa, PAGESIZE);
+                        virtual_memory_map(processes[child].p_pagetable, va, (uintptr_t) page, PAGESIZE, vam.perm, NULL);
+                    } 
+                } 
+            } 
 
-    // Copy parent processes's registers into child
-    processes[index].p_registers = current->p_registers;
+        // copy registers:
+        processes[child].p_registers = current -> p_registers;
+        
+        // set return values:
+        current -> p_registers.reg_rax = child;
+        processes[child].p_registers.reg_rax = 0;
+		
+        return child;
+        } 
+    } 
 
-    // Set child values
-    processes[index].p_registers.reg_rsp = 0;
-    processes[index].p_pid = index;
-    processes[index].p_state = P_RUNNABLE;
-
-    return 0;
+    return -1;
 }
 
 /*
@@ -420,8 +442,9 @@ void exception(x86_64_registers* reg) {
     // Step 5: Fork
     // Handler for instances in which system call, fork() is called.
     case INT_SYS_FORK: {
-		current->p_registers.reg_rsp = fork(reg);
-		run(current);
+		fork();
+		//current->p_registers.reg_rsp = fork();
+		//run(current);
 		break;
     }
   
