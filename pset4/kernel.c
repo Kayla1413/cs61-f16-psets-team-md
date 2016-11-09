@@ -142,15 +142,9 @@ void copy_pagetable(x86_64_pagetable* copied_pagetable,
 	   sizeof(x86_64_pagetable));
 }
 
-
-// process_setup(pid, program_number)
-//    Load application program `program_number` as process number `pid`.
-//    This loads the application's code and data into memory, sets its
-//    %rip and %rsp, gives it a stack page, and marks it as runnable.
-
-void process_setup(pid_t pid, int program_number) {
-    process_init(&processes[pid], 0);
-    uintptr_t address = use_any_physical_page();
+uintptr_t setup_pagetable (pid_t pid) 
+{
+	uintptr_t address = use_any_physical_page();
     assign_physical_page(address, pid);
     memset((void*)address, 0, PAGESIZE);
 
@@ -196,6 +190,18 @@ void process_setup(pid_t pid, int program_number) {
 			(uintptr_t) PROC_START_ADDR, // VA 
 			(uintptr_t) PROC_START_ADDR, // PA
 			MEMSIZE_PHYSICAL- PROC_START_ADDR, 0, NULL);
+	return address;
+}
+
+
+// process_setup(pid, program_number)
+//    Load application program `program_number` as process number `pid`.
+//    This loads the application's code and data into memory, sets its
+//    %rip and %rsp, gives it a stack page, and marks it as runnable.
+
+void process_setup(pid_t pid, int program_number) {
+    process_init(&processes[pid], 0);
+    setup_pagetable(pid);
     
     int r = program_load(&processes[pid], program_number, NULL);
     assert(r >= 0);
@@ -236,7 +242,7 @@ int fork(x86_64_registers* reg) {
             return -1;
     }
 
-    uintptr_t address = use_any_physical_page();
+    uintptr_t address = setup_pagetable(index);
     processes[index].p_pagetable = (x86_64_pagetable *)  address;
     assign_physical_page(address, processes[index].p_pid);
     memset((void*)address, 0, PAGESIZE);
@@ -382,8 +388,8 @@ void exception(x86_64_registers* reg) {
 	} 
 	/* Step 4: Overlapping address spaces */
 	else {
-	current->p_registers.reg_rax = -1;
-	log_printf("Out of physical memory!");
+		current->p_registers.reg_rax = -1;
+		log_printf("Out of physical memory!");
 	}
         break;
     }
@@ -414,9 +420,9 @@ void exception(x86_64_registers* reg) {
     // Step 5: Fork
     // Handler for instances in which system call, fork() is called.
     case INT_SYS_FORK: {
-	current->p_registers.reg_rsp = fork(reg);
-	run(current);
-	break;
+		current->p_registers.reg_rsp = fork(reg);
+		run(current);
+		break;
     }
   
     default:
@@ -528,7 +534,7 @@ void check_page_table_ownership(x86_64_pagetable* pt, pid_t pid) {
     // calculate expected reference count for page tables
     int owner = pid;
     int expected_refcount = 1;
-	//log_printf("kernel_pagetable is %d\n" , kernel_pagetable);
+	
     if (pt == kernel_pagetable) {
         owner = PO_KERNEL;
         for (int xpid = 0; xpid < NPROC; ++xpid)
@@ -554,11 +560,6 @@ static void check_page_table_ownership_level(x86_64_pagetable* pt, int level,
 				
                 x86_64_pagetable* nextpt =
                     (x86_64_pagetable*) PTE_ADDR(pt->entry[index]);
-				log_printf("\npt is %d\n" , pt);
-				log_printf("index is %d\n" , index);
-				log_printf("level is %d\n" , level);
-				log_printf("pt->entry[index] is %d\n" , pt->entry[index]);
-				log_printf("nextpt is %d\n\n" , nextpt);
 
                 check_page_table_ownership_level(nextpt, level + 1, owner, 1);
             }
@@ -581,7 +582,6 @@ void check_virtual_memory(void) {
     // All level-2-4 page tables must have reference count 1.
 
     check_page_table_mappings(kernel_pagetable);
-	log_printf("kernel pagetable\n");
     check_page_table_ownership(kernel_pagetable, -1);
 
     for (int pid = 0; pid < NPROC; ++pid)
@@ -589,9 +589,6 @@ void check_virtual_memory(void) {
         if (processes[pid].p_state != P_FREE
             && processes[pid].p_pagetable != kernel_pagetable) {
             check_page_table_mappings(processes[pid].p_pagetable);
-			log_printf("!= P_FREE\n");
-			log_printf("pid being passed is %d\n" , pid);
-			log_printf("page_table being passed is %d\n" , processes[pid].p_pagetable);
             check_page_table_ownership(processes[pid].p_pagetable, pid);
         }
 	
