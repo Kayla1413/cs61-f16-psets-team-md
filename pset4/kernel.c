@@ -257,7 +257,6 @@ int sys_exit(pid_t pid)
 }
 
 pid_t fork(void) {
-
     // look for a free slot:
     for(int child = 1; child < NPROC; child++) {
 		//log_printf("child is %d\n", child);
@@ -288,6 +287,10 @@ pid_t fork(void) {
                     if(vam.perm) { 
         		        uintptr_t pn_addr = use_any_physical_page(); 
 						int pn = assign_physical_page(pn_addr, child);
+						if(pn == -1) {
+                            sys_exit(child);  
+                            return -1;
+                        }
                         void* page = (void*) PAGEADDRESS(pn);
                         memcpy(page, (void*) vam.pa, PAGESIZE);
                         virtual_memory_map(processes[child].p_pagetable, va, (uintptr_t) page, PAGESIZE, vam.perm, NULL);
