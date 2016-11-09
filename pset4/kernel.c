@@ -242,7 +242,7 @@ int fork(x86_64_registers* reg) {
             return -1;
     }
 
-    uintptr_t address = setup_pagetable(index);
+    uintptr_t address = setup_pagetable(current->p_pid);
     processes[index].p_pagetable = (x86_64_pagetable *)  address;
     assign_physical_page(address, processes[index].p_pid);
     memset((void*)address, 0, PAGESIZE);
