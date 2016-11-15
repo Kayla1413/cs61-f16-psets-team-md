@@ -70,7 +70,23 @@ static void command_append_arg(command* c, char* word) {
 pid_t start_command(command* c, pid_t pgid) {
     (void) pgid;
     // Your code here!
-    fprintf(stderr, "start_command not done yet\n");
+    
+    /* Part 1: Simple Commands */
+    int status = 0;
+    if ((c->pid = fork()) < 0) {
+	perror("Failed fork().\n");
+	exit(-1);
+    }
+    else if (c->pid == 0) {
+	if (execvp(c->argv[0], c->argv) < 0) {
+	    perror("Failed execvp().\n");
+	    exit(-1);
+        }
+    }
+    else {
+	while (waitpid(c->pid, &status, 0) != c->pid);
+    }
+
     return c->pid;
 }
 
@@ -96,7 +112,6 @@ pid_t start_command(command* c, pid_t pgid) {
 
 void run_list(command* c) {
     start_command(c, 0);
-    fprintf(stderr, "run_command not done yet\n");
 }
 
 
