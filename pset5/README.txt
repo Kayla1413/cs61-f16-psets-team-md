@@ -5,8 +5,7 @@ YOU MUST FILL OUT THIS FILE BEFORE SUBMITTING!
 
 OTHER COLLABORATORS AND CITATIONS (if any):
 -Linux Manual 
-
-
+-Lecture and exercises from 2, 2X (baby shell, solution video)
 
 KNOWN BUGS (if any):
 

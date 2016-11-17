@@ -4,6 +4,9 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
+// For readability purposes, bool type leveraged in cmd struct
+
+typedef enum {false, true} bool;
 
 // struct command
 //    Data structure describing a command. Add your own stuff.
@@ -13,6 +16,8 @@ struct command {
     int argc;      // number of arguments
     char** argv;   // arguments, terminated by NULL
     pid_t pid;     // process ID running this command, -1 if none
+    int status;    // status leveraged for wait sys call
+    bool bg_cmd;   // track commands in the background
 };
 
 
@@ -24,6 +29,8 @@ static command* command_alloc(void) {
     c->argc = 0;
     c->argv = NULL;
     c->pid = -1;
+    c->status = 0;
+    c->bg_cmd = false;
     return c;
 }
 
@@ -69,23 +76,36 @@ static void command_append_arg(command* c, char* word) {
 
 pid_t start_command(command* c, pid_t pgid) {
     (void) pgid;
-    // Your code here!
-    
+        
     /* Part 1: Simple Commands */
-    int status = 0;
-    if ((c->pid = fork()) < 0) {
-	perror("Failed fork().\n");
+    if ((c->pid = fork()) < 0) {	
+	perror("fork() failed in start_command.\n");
 	exit(-1);
     }
-    else if (c->pid == 0) {
+    else if (c->pid == 0) {		
 	if (execvp(c->argv[0], c->argv) < 0) {
-	    perror("Failed execvp().\n");
+	    perror("execvp() failed in start_command.\n");
 	    exit(-1);
         }
     }
-    else {
-	while (waitpid(c->pid, &status, 0) != c->pid);
-    }
+    pid_t exit_pid;
+    while(1) {					
+	exit_pid = waitpid(c->pid, &c->status, WUNTRACED | WCONTINUED);
+	(void) exit_pid; // Temporarily voided to hide 'unused var' warning
+	if (WIFEXITED(c->status)){		
+		/* Part 2: Background commands */
+		if(c->bg_cmd == true) 
+			exit(-1);
+		break;
+	}
+	else if (WIFSIGNALED(c->status)) {
+		printf("Child received a signal.\n");
+		break;
+	} else if (WIFSTOPPED(c->status)) {
+		printf("Child process is stopped; keep waiting.\n");
+	}
+	sleep(1);
+    }     
 
     return c->pid;
 }
@@ -101,7 +121,7 @@ pid_t start_command(command* c, pid_t pgid) {
 //    and write code in run_list (or in helper functions!).
 //    PART 2: Treat background commands differently.
 //    PART 3: Introduce a loop to run all commands in the list.
-//    PART 4: Change the loop to handle conditionals.
+//    PART 4I: Change the loop to handle conditionals.
 //    PART 5: Change the loop to handle pipelines. Start all processes in
 //       the pipeline in parallel. The status of a pipeline is the status of
 //       its LAST command.
@@ -110,7 +130,19 @@ pid_t start_command(command* c, pid_t pgid) {
 //       - Call `set_foreground(0)` once the pipeline is complete.
 //       - Cancel the list when you detect interruption.
 
-void run_list(command* c) {
+void run_list(command* c) {    
+pid_t pid;
+    /* Part 2: Background commands */
+    if(c->bg_cmd == true){
+	pid = fork();
+	if (pid) {
+	    return;
+	} else if(pid < 0){
+	    perror("fork() failed in run_list.\n");
+	    exit(-1);
+	} 
+    }
+
     start_command(c, 0);
 }
 
@@ -121,13 +153,17 @@ void run_list(command* c) {
 void eval_line(const char* s) {
     int type;
     char* token;
-    // Your code here!
-
+   
     // build the command
     command* c = command_alloc();
-    while ((s = parse_shell_token(s, &type, &token)) != NULL)
-        command_append_arg(c, token);
-
+    while ((s = parse_shell_token(s, &type, &token)) != NULL) {
+	/* Part 2: Background commands */
+	if(type == TOKEN_BACKGROUND)
+	    c->bg_cmd = true;
+        else
+	    command_append_arg(c, token);
+    }
+       
     // execute it
     if (c->argc)
         run_list(c);
