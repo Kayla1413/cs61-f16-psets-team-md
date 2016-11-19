@@ -18,6 +18,10 @@ struct command {
     pid_t pid;     // process ID running this command, -1 if none
     int status;    // status leveraged for wait sys call
     bool bg_cmd;   // track commands in the background
+	command* next; // next command to be processed
+    int control;  // control operator
+    int conditional;  // conditional operator, NULL if none
+    int prev_status;    // status of previous process, NULL if not set
 };
 
 
@@ -31,6 +35,10 @@ static command* command_alloc(void) {
     c->pid = -1;
     c->status = 0;
     c->bg_cmd = false;
+	c->next = NULL;
+    c->control = -1;
+    c->conditional = -1;
+    c->prev_status = 0;
     return c;
 }
 
@@ -131,21 +139,66 @@ pid_t start_command(command* c, pid_t pgid) {
 //       - Cancel the list when you detect interruption.
 
 void run_list(command* c) {    
-pid_t pid;
-    /* Part 2: Background commands */
-    if(c->bg_cmd == true){
-	pid = fork();
+	pid_t pid;
+
+	if(c->bg_cmd == true){
+		pid = fork();
 	if (pid) {
 	    return;
 	} else if(pid < 0){
 	    perror("fork() failed in run_list.\n");
 	    exit(-1);
-	} 
+		} 
     }
+	
+	command* current = c;
+    while(current && current->argc) {
 
-    start_command(c, 0);
+        // run in background
+        if ((current->control == TOKEN_AND && current->conditional != TOKEN_AND) 
+            || (current->control == TOKEN_OR && current->conditional != TOKEN_OR))
+            pid = fork();        
+
+        if (pid)  
+            continue;
+
+        if (!WIFEXITED(current->prev_status)) {
+            current = current->next;
+            continue;
+        }
+
+        if (current->conditional == TOKEN_AND && WEXITSTATUS(current->prev_status)) {
+            current = current->next;
+            continue;
+        }
+
+        if (current->conditional == TOKEN_OR && !WEXITSTATUS(current->prev_status)) {
+            current = current->next;
+            continue;
+        }                        
+
+        start_command(current, 0);
+        int status;
+        if (current->control != TOKEN_BACKGROUND) {
+            if (pid)
+                waitpid(pid, &status, 0);
+            else
+                waitpid(current->pid, &status, 0);
+            
+            if (current->next)
+                current->next->prev_status = status;
+        }
+
+        // end the child process
+        if (!pid && ((current->control != TOKEN_AND && current->conditional == TOKEN_AND) 
+            || (current->control != TOKEN_OR && current->conditional == TOKEN_OR))) {
+            exit(-1);
+        }
+
+        current = current->next;
+    }
 }
-
+   
 
 // eval_line(c)
 //    Parse the command list in `s` and run it via `run_list`.
