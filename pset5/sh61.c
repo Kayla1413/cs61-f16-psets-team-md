@@ -164,7 +164,7 @@ void run_list(command* c) {
 
                     execvp(current->argv[0], current->argv);
                 }
-
+				current->pid = cpid;
                 // go to next command
                 current = current->next;
                 cmd_count += 2;
@@ -349,6 +349,15 @@ int main(int argc, char* argv[]) {
 
         // Handle zombie processes and/or interrupt requests
         // Your code here!
+
+		// Part 6
+		int status;
+        int pid = 1;
+
+        while (pid != -1 && pid != 0) {
+            pid = waitpid(-1, &status, WNOHANG);
+        }
+		
     }
 
     return 0;
