@@ -111,69 +111,84 @@ pid_t start_command(command* c, pid_t pgid) {
 //       - Call `set_foreground(0)` once the pipeline is complete.
 //       - Cancel the list when you detect interruption.
 
-void run_list(command* c) {    
-	pid_t pid = 0;
+void run_list(command* c) {
 
-	
-	command* current = c;
+    pid_t pid = 0;
+
+    command* current = c;
     while(current && current->argc) {
-		if(c->bg_cmd == true){
-			pid = fork();
-		}
 
-        // run in background
-       if (((current->control == TOKEN_AND || (current->control == TOKEN_OR)) && 
-            current->conditional != TOKEN_AND && current->conditional != TOKEN_OR)) {
+        // start of condition - run in the background
+        if (((current->control == TOKEN_AND || (current->control == TOKEN_OR)) && 
+            current->conditional != TOKEN_AND && current->conditional != TOKEN_OR))
             pid = fork();
-        }       
 
-       if (pid && (current->control == TOKEN_AND || current->control == TOKEN_OR
-            || current->conditional == TOKEN_AND || current->conditional == TOKEN_OR)) {
-            current = current->next;
-			continue;
-		}
-
-        if (!WIFEXITED(current->prev_status)) {
+        // continue in parent
+        if (pid && (current->control == TOKEN_AND || current->control == TOKEN_OR)) {
             current = current->next;
             continue;
         }
 
-        if (current->conditional == TOKEN_AND && WEXITSTATUS(current->prev_status)) {
-            current = current->next;
-            continue;
+        if (!pid) {
+
+            if (current->next)
+                current->next->prev_status = current->prev_status;
+
+            // Check conditional statements
+            if (!WIFEXITED(current->prev_status)) {
+                current = current->next;
+                continue;
+            }
+
+            if (current->conditional == TOKEN_AND && WEXITSTATUS(current->prev_status)) {
+                current = current->next;
+                continue;
+            }
+
+
+            if (current->conditional == TOKEN_OR && !WEXITSTATUS(current->prev_status)) {
+                current = current->next;
+                continue;
+            }
+
         }
 
-        if (current->conditional == TOKEN_OR && !WEXITSTATUS(current->prev_status)) {
+        int status;
+
+        // end of condition
+        if ((current->conditional == TOKEN_AND || current->conditional == TOKEN_OR) 
+            && current->control != TOKEN_AND && current->control != TOKEN_OR) {
+
+            // end child
+            if (!pid) {
+                start_command(current, 0);
+                waitpid(current->pid, &status, 0);
+                exit(EXIT_SUCCESS);
+            }
+
+            // run process in background
+            if (current->control != TOKEN_BACKGROUND) {           
+                waitpid(pid, &status, 0);
+            }
+
+            pid = 0;
             current = current->next;
             continue;
-        }                        
+        }      
+    
 
         start_command(current, 0);
-        int status;
         if (current->control != TOKEN_BACKGROUND) {
-            waitpid(current->pid, &status, 0);
-            
+            waitpid(current->pid, &status, 0);            
             if (current->next)
                 current->next->prev_status = status;
         }
 
-        if ((current->control != TOKEN_AND && current->conditional == TOKEN_AND) 
-            || (current->control != TOKEN_OR && current->conditional == TOKEN_OR)) {
-            
-            //end child process
-            if (!pid)
-                exit(EXIT_SUCCESS);
-
-            // run process background if &
-            if (current->control != TOKEN_BACKGROUND) {
-                waitpid(pid, &status, 0);
-                pid = 0;
-            }
-		}
-
         current = current->next;
     }
 }
+
+
    
 
 // eval_line(c)
