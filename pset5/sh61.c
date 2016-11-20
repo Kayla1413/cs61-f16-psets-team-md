@@ -33,9 +33,7 @@ static command* command_alloc(void) {
     c->argc = 0;
     c->argv = NULL;
     c->pid = -1;
-    c->status = 0;
-    c->bg_cmd = false;
-	c->next = NULL;
+    c->next = NULL;
     c->control = -1;
     c->conditional = -1;
     c->prev_status = 0;
@@ -65,7 +63,6 @@ static void command_append_arg(command* c, char* word) {
     ++c->argc;
 }
 
-
 // COMMAND EVALUATION
 
 // start_command(c, pgid)
@@ -82,31 +79,14 @@ static void command_append_arg(command* c, char* word) {
 //       its own process group (if `pgid == 0`). To avoid race conditions,
 //       this will require TWO calls to `setpgid`.
 
-pid_t start_command(command* c, pid_t pgid, int fd[]) {
+pid_t start_command(command* c, pid_t pgid) {
     (void) pgid;
     // Your code here!
     c->pid = fork();
-	if (fd) {
-		// if child
-        if(c->pid == 0) {
-		    close(fd[1]);
-		    dup2(fd[0], 0);
-		    close(fd[0]);
-		    execvp(c->next->argv[0], c->next->argv);
-		}
-		//else if parent
-        else {
-            close(fd[0]);
-            dup2(fd[1], 1);
-            close(fd[1]);
-            execvp(c->argv[0], c->argv);
-        }
-    }
     if (!c->pid)
         execvp(c->argv[0], c->argv);
     return c->pid;
 }
-
 
 // run_list(c)
 //    Run the command list starting at `c`.
@@ -118,7 +98,7 @@ pid_t start_command(command* c, pid_t pgid, int fd[]) {
 //    and write code in run_list (or in helper functions!).
 //    PART 2: Treat background commands differently.
 //    PART 3: Introduce a loop to run all commands in the list.
-//    PART 4I: Change the loop to handle conditionals.
+//    PART 4: Change the loop to handle conditionals.
 //    PART 5: Change the loop to handle pipelines. Start all processes in
 //       the pipeline in parallel. The status of a pipeline is the status of
 //       its LAST command.
@@ -130,48 +110,88 @@ pid_t start_command(command* c, pid_t pgid, int fd[]) {
 void run_list(command* c) {
 
     pid_t pid = 0;
-	int status;
+    int status;
 
     command* current = c;
     while(current && current->argc) {
 
-		if (current->conditional == TOKEN_PIPE) {
-            current = current->next;
-            continue;
-        }
-
-        // if followed by pipe token
+        // If the command is followed by a pipe token
         if (current->control == TOKEN_PIPE) {
 
-            int fd[2];
+            // Count pipes
+			int num_pipes = 0;
+			command* cur = current;
+			while (cur && cur->control == TOKEN_PIPE) {
+				num_pipes++;
+				cur = cur->next;
+			} 
+            int fd[2 * num_pipes];
             pid_t cpid;
 
-            if (pipe(fd) == -1) {
-                exit(EXIT_FAILURE);
+            // Create pipes
+            for (int i = 0; i < num_pipes; i++) {
+                if (pipe(fd + i*2) == -1) {
+                    perror("pipe");
+                    exit(EXIT_FAILURE);
+                }
             }
 
-            cpid = fork();
+            int cmd_count = 0;
 
-            if (cpid == -1) {
-                exit(EXIT_FAILURE);
-            }
+            // Process the pipe commands
+            while (current && (!cmd_count || current->conditional == TOKEN_PIPE)) {
+                cpid = fork();
 
-            if (!cpid) {
+                if (cpid == -1) {
+                    perror("fork");
+                    exit(EXIT_FAILURE);
+                }
+
+                // If in child
+                if (!cpid) {
+                    // check if first commmand
+                    if (cmd_count)
+                        dup2(fd[cmd_count - 2], STDIN_FILENO);
+
+                    // check if last command
+                    if (current->next)
+                        dup2(fd[cmd_count + 1], STDOUT_FILENO);
+
+                    // Close file descriptors
+                    for (int i = 0; i < 2*num_pipes; i++) {
+                        close(fd[i]);
+                    }                    
+
+                    execvp(current->argv[0], current->argv);
+                }
+
+                // go to next command
                 current = current->next;
-                start_command(current, 0, fd);
-                exit(EXIT_SUCCESS);
+                cmd_count += 2;
             }
 
-            current = current->next;
+            // Close file descriptors
+            for (int i = 0; i < 2*num_pipes; i++) {
+                close(fd[i]);
+            }
+
+            // Wait for all child processes
+            waitpid(cpid, &status, 0);
+
+            // Set the previous status to current status
+             if (current)
+                current->prev_status = status;
+
             continue;
         }
 
-        // start of condition - run in the background
+
+        // run in the background
         if (((current->control == TOKEN_AND || (current->control == TOKEN_OR)) && 
             current->conditional != TOKEN_AND && current->conditional != TOKEN_OR))
             pid = fork();
 
-        // continue in parent
+        // if in the parent process
         if (pid && (current->control == TOKEN_AND || current->control == TOKEN_OR)) {
             current = current->next;
             continue;
@@ -179,10 +199,10 @@ void run_list(command* c) {
 
         if (!pid) {
 
+            // set status to previous status
             if (current->next)
                 current->next->prev_status = current->prev_status;
 
-            // Check conditional statements
             if (!WIFEXITED(current->prev_status)) {
                 current = current->next;
                 continue;
@@ -198,21 +218,19 @@ void run_list(command* c) {
                 current = current->next;
                 continue;
             }
-
         }
-
-        // end of condition
+		// end of conditional
         if ((current->conditional == TOKEN_AND || current->conditional == TOKEN_OR) 
             && current->control != TOKEN_AND && current->control != TOKEN_OR) {
 
-            // end child
+            // end if child process
             if (!pid) {
-                start_command(current, 0, NULL);
+                start_command(current, 0);
                 waitpid(current->pid, &status, 0);
                 exit(EXIT_SUCCESS);
             }
 
-            // run process in background
+            // process in background
             if (current->control != TOKEN_BACKGROUND) {           
                 waitpid(pid, &status, 0);
             }
@@ -223,7 +241,7 @@ void run_list(command* c) {
         }      
     
 
-        start_command(current, 0, NULL);
+        start_command(current, 0);
         if (current->control != TOKEN_BACKGROUND) {
             waitpid(current->pid, &status, 0);            
             if (current->next)
@@ -235,8 +253,6 @@ void run_list(command* c) {
 }
 
 
-   
-
 // eval_line(c)
 //    Parse the command list in `s` and run it via `run_list`.
 
@@ -244,6 +260,7 @@ void eval_line(const char* s) {
     int type;
     char* token;
     // Your code here!
+    // build the command
     command* c = command_alloc();
     command* current = c;
     while ((s = parse_shell_token(s, &type, &token)) != NULL) {
@@ -252,17 +269,17 @@ void eval_line(const char* s) {
             current->next = command_alloc();
             current = current->next;
             
-            // Set conditional operator in next command to false
-            if (type == TOKEN_AND || type == TOKEN_OR)
-                current->conditional = type;
+            // Set previous operator for the next command
+            current->conditional = type;
         }
-        else
+        else 
             command_append_arg(current, token);
     }
+
     if (c->argc)
         run_list(c);
 
-    // free commands
+    // free all commands
     current = c;
     while (current) {
         command* next = current->next;
@@ -336,3 +353,4 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+
