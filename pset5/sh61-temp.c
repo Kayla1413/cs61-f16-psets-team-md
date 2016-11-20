@@ -155,17 +155,26 @@ void run_list(command* c) {
 		    exit(EXIT_FAILURE);
 
 		// Calls to open() have different argument depending on redirect type
-		char redir_type = (char*) current->redirect_token;
+		char redir_type =  current->redirect_token;
 		switch(redir_type) {
 		    case '<':
-			 fd[i] = open(current->argv[0], O_CREAT | O_RDONLY, 0664);
+			fd[i] = open(current->argv[0], O_CREAT | O_RDWR, 0666);
+			if(fd[i] == -1){
+				perror(strerror(errno));
+			}
 			 break;
 		    case '>':
-                         fd[i] = open(current->argv[0], O_CREAT | O_WRONLY | O_TRUNC, 0664);
-                         break;
+                         fd[i] = open(current->argv[0], O_CREAT | O_WRONLY | O_TRUNC, 0666);
+                         if(fd[i] == -1) {
+				perror(strerror(errno));
+			 }
+			 break;
 		    default:
-                         fd[i] = open(current->argv[0], O_CREAT | O_WRONLY | O_TRUNC, 0664);
-                         break;
+                         fd[i] = open(current->argv[0], O_CREAT | O_WRONLY | O_TRUNC, 0666);
+                         if(fd[i] == -1) {
+				perror(strerror(errno));
+			 }
+			 break;
 		}
 
 		if (fd[i] == -1) {
