@@ -13,16 +13,14 @@ typedef enum {false, true} bool;
 
 typedef struct command command;
 struct command {
-    int argc;      // number of arguments
-    char** argv;   // arguments, terminated by NULL
-    pid_t pid;     // process ID running this command, -1 if none
-    int status;    // status leveraged for wait sys call
-    bool bg_cmd;   // track commands in the background
-	command* next; // next command to be processed
-    int control;  // control operator
-    int conditional;  // conditional operator, NULL if none
-    int prev_status;    // status of previous process, NULL if not set
-	char* redirect_token; // redirect token 
+    int argc;      	  // number of arguments
+    char** argv;   	  // arguments, terminated by NULL
+    pid_t pid;     	  // process ID running this command, -1 if none
+    struct command* next; // next command to be processed - need to traverse
+    int control; 	  // control operator
+    int conditional;  	  // conditional operator, NULL if none
+    int prev_status;      // status of previous process, NULL if not set
+    char* redirect_token; // redirect token 
 };
 
 
@@ -38,7 +36,7 @@ static command* command_alloc(void) {
     c->control = -1;
     c->conditional = -1;
     c->prev_status = 0;
-	c->redirect_token = NULL;
+    c->redirect_token = NULL;
     return c;
 }
 
@@ -83,10 +81,13 @@ static void command_append_arg(command* c, char* word) {
 
 pid_t start_command(command* c, pid_t pgid) {
     (void) pgid;
-    // Your code here!
+    // Part 1: Simple commands
+    //    Forks copy of current process, and executes program on child 
+    //    process using execvp system call. 
     c->pid = fork();
-    if (!c->pid)
-        execvp(c->argv[0], c->argv);
+    if (!c->pid) 
+	if(execvp(c->argv[0], c->argv) < 0)
+	    perror("Failed execvp()\n");
     return c->pid;
 }
 
@@ -110,13 +111,23 @@ pid_t start_command(command* c, pid_t pgid) {
 //       - Cancel the list when you detect interruption.
 
 void run_list(command* c) {
-
     pid_t pid = 0;
     int status;
-
     command* current = c;
+    
     while(current && current->argc) {
-		
+	// Part 9: The cd command 
+	//    Shell supports the cd directory command:
+	//    If 'cd' is the 1st provided argument, updates exit status,
+	//    and then uses 'chdir' system call to change current working 
+	//    directory of the calling process to the directory specified in path.
+	if (strcmp(*c->argv, "cd") == 0) {
+	    status = EXIT_SUCCESS;
+	    if(chdir(c->argv[1]) != 0) {
+		perror("Failed chdir().\n");
+	    }
+	}
+
 		// Part 7: redirects
 		if (current->control == TOKEN_REDIRECTION) {
 			// count the redirects
@@ -251,7 +262,8 @@ void run_list(command* c) {
         }
 
 
-        // run in the background
+	// Part 4: Conditionals
+	//    Determines if there are chaings of commands linked by && and/or ||.
         if (((current->control == TOKEN_AND || (current->control == TOKEN_OR)) && 
             current->conditional != TOKEN_AND && current->conditional != TOKEN_OR))
             pid = fork();
@@ -295,7 +307,9 @@ void run_list(command* c) {
                 exit(EXIT_SUCCESS);
             }
 
-            // process in background
+            // Part 3: Background commands
+	    //    Determines if process should run in background; which allows the shell to
+	    //    continute accepting new cms without waiting for prior cmds to complete.
             if (current->control != TOKEN_BACKGROUND) {           
                 waitpid(pid, &status, 0);
             }
@@ -324,31 +338,32 @@ void run_list(command* c) {
 void eval_line(const char* s) {
     int type;
     char* token;
-    // Your code here!
-    // build the command
+
+    // Declares new command
     command* c = command_alloc();
     command* current = c;
+
     while ((s = parse_shell_token(s, &type, &token)) != NULL) {
-        if (type) {
-            current->control = type;
+        // Initializes the command's data types.
+	if (type) {
+	    current->control = type;
             current->next = command_alloc();
             current = current->next;
-            
-            // Set previous operator for the next command
             current->conditional = type;
-			if (type == TOKEN_REDIRECTION) {
-            	current->redirect_token = token;
+	    if (type == TOKEN_REDIRECTION) {
+		current->redirect_token = token;
             }
         }
-        else 
+        else { 
             command_append_arg(current, token);
+	}
     }
 
+    // Run list of evaluated cmds.
     if (c->argc)
         run_list(c);
-
-    // free all commands
-    current = c;
+    
+    // Free all dynamic memory used by cmds.    
     while (current) {
         command* next = current->next;
         command_free(current);
