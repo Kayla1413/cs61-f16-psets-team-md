@@ -84,37 +84,10 @@ static void command_append_arg(command* c, char* word) {
 
 pid_t start_command(command* c, pid_t pgid) {
     (void) pgid;
-        
-    /* Part 1: Simple Commands */
-    if ((c->pid = fork()) < 0) {	
-	perror("fork() failed in start_command.\n");
-	exit(-1);
-    }
-    else if (c->pid == 0) {		
-	if (execvp(c->argv[0], c->argv) < 0) {
-	    perror("execvp() failed in start_command.\n");
-	    exit(-1);
-        }
-    }
-    pid_t exit_pid;
-    while(1) {					
-	exit_pid = waitpid(c->pid, &c->status, WUNTRACED | WCONTINUED);
-	(void) exit_pid; // Temporarily voided to hide 'unused var' warning
-	if (WIFEXITED(c->status)){		
-		/* Part 2: Background commands */
-		if(c->bg_cmd == true) 
-			exit(-1);
-		break;
-	}
-	else if (WIFSIGNALED(c->status)) {
-		printf("Child received a signal.\n");
-		break;
-	} else if (WIFSTOPPED(c->status)) {
-		printf("Child process is stopped; keep waiting.\n");
-	}
-	sleep(1);
-    }     
-
+    // Your code here!
+    c->pid = fork();
+    if (!c->pid)
+        execvp(c->argv[0], c->argv);
     return c->pid;
 }
 
@@ -139,28 +112,26 @@ pid_t start_command(command* c, pid_t pgid) {
 //       - Cancel the list when you detect interruption.
 
 void run_list(command* c) {    
-	pid_t pid;
+	pid_t pid = 0;
 
-	if(c->bg_cmd == true){
-		pid = fork();
-	if (pid) {
-	    return;
-	} else if(pid < 0){
-	    perror("fork() failed in run_list.\n");
-	    exit(-1);
-		} 
-    }
 	
 	command* current = c;
     while(current && current->argc) {
+		if(c->bg_cmd == true){
+			pid = fork();
+		}
 
         // run in background
-        if ((current->control == TOKEN_AND && current->conditional != TOKEN_AND) 
-            || (current->control == TOKEN_OR && current->conditional != TOKEN_OR))
-            pid = fork();        
+       if (((current->control == TOKEN_AND || (current->control == TOKEN_OR)) && 
+            current->conditional != TOKEN_AND && current->conditional != TOKEN_OR)) {
+            pid = fork();
+        }       
 
-        if (pid)  
-            continue;
+       if (pid && (current->control == TOKEN_AND || current->control == TOKEN_OR
+            || current->conditional == TOKEN_AND || current->conditional == TOKEN_OR)) {
+            current = current->next;
+			continue;
+		}
 
         if (!WIFEXITED(current->prev_status)) {
             current = current->next;
@@ -180,20 +151,25 @@ void run_list(command* c) {
         start_command(current, 0);
         int status;
         if (current->control != TOKEN_BACKGROUND) {
-            if (pid)
-                waitpid(pid, &status, 0);
-            else
-                waitpid(current->pid, &status, 0);
+            waitpid(current->pid, &status, 0);
             
             if (current->next)
                 current->next->prev_status = status;
         }
 
-        // end the child process
-        if (!pid && ((current->control != TOKEN_AND && current->conditional == TOKEN_AND) 
-            || (current->control != TOKEN_OR && current->conditional == TOKEN_OR))) {
-            exit(-1);
-        }
+        if ((current->control != TOKEN_AND && current->conditional == TOKEN_AND) 
+            || (current->control != TOKEN_OR && current->conditional == TOKEN_OR)) {
+            
+            //end child process
+            if (!pid)
+                exit(EXIT_SUCCESS);
+
+            // run process background if &
+            if (current->control != TOKEN_BACKGROUND) {
+                waitpid(pid, &status, 0);
+                pid = 0;
+            }
+		}
 
         current = current->next;
     }
@@ -206,21 +182,32 @@ void run_list(command* c) {
 void eval_line(const char* s) {
     int type;
     char* token;
-   
-    // build the command
+    // Your code here!
     command* c = command_alloc();
+    command* current = c;
     while ((s = parse_shell_token(s, &type, &token)) != NULL) {
-	/* Part 2: Background commands */
-	if(type == TOKEN_BACKGROUND)
-	    c->bg_cmd = true;
+        if (type) {
+            current->control = type;
+            current->next = command_alloc();
+            current = current->next;
+            
+            // Set conditional operator in next command to false
+            if (type == TOKEN_AND || type == TOKEN_OR)
+                current->conditional = type;
+        }
         else
-	    command_append_arg(c, token);
+            command_append_arg(current, token);
     }
-       
-    // execute it
     if (c->argc)
         run_list(c);
-    command_free(c);
+
+    // free commands
+    current = c;
+    while (current) {
+        command* next = current->next;
+        command_free(current);
+        current = next; 
+    }
 }
 
 
