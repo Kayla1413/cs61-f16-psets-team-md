@@ -4,9 +4,6 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
-// For readability purposes, bool type leveraged in cmd struct
-
-typedef enum {false, true} bool;
 
 // Part 3: Command lists
 //    Updated command struct as linked list. Other functions throughout
@@ -90,8 +87,7 @@ pid_t start_command(command* c, pid_t pgid) {
     //    process using execvp system call. 
     c->pid = fork();
     if (!c->pid) 
-	if(execvp(c->argv[0], c->argv) < 0)
-	    perror("Failed execvp()\n");
+	execvp(c->argv[0], c->argv);
     return c->pid;
 }
 
@@ -128,7 +124,7 @@ void run_list(command* c) {
 	if (strcmp(*c->argv, "cd") == 0) {
 	    status = EXIT_SUCCESS;
 	    if(chdir(c->argv[1]) != 0) {
-		perror("Failed chdir().\n");
+		printf("Directory does not exist.\n");
 	    }
 	}
 
@@ -146,8 +142,8 @@ void run_list(command* c) {
 	        cur = cur->next;
 	    }
 	    int fd[num_redirects];
-    	pid_t cpid;
-    	cpid = fork();
+    	    pid_t cpid;
+    	    cpid = fork();
 
 	// Determines kind of Redirection and duplicates the file descriptor.
     	if (!cpid) {
@@ -280,17 +276,20 @@ void run_list(command* c) {
  
     // Child Process - Updates status and traverses
     if (!pid) {
-            if (current->next)
-                current->next->prev_status = current->prev_status;
-            if (!WIFEXITED(current->prev_status)) {
-                current = current->next;
-                continue;
-            }
-            if ((current->conditional == TOKEN_AND && WEXITSTATUS(current->prev_status)) ||
-  	        (current->conditional == TOKEN_OR && !WEXITSTATUS(current->prev_status))){
-                    current = current->next;
-                    continue;
-            }
+        if (current->next)
+            current->next->prev_status = current->prev_status;
+        if (!WIFEXITED(current->prev_status)) {
+            current = current->next;
+            continue;
+        }
+        if (current->conditional == TOKEN_AND && WEXITSTATUS(current->prev_status)){
+            current = current->next;
+            continue;
+        }
+	if (current->conditional == TOKEN_OR && !WEXITSTATUS(current->prev_status)){
+            current = current->next;
+            continue;
+        }
     }
 	
     // Determine if end of conditionals count.
