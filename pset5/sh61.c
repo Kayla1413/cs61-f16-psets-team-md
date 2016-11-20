@@ -82,10 +82,26 @@ static void command_append_arg(command* c, char* word) {
 //       its own process group (if `pgid == 0`). To avoid race conditions,
 //       this will require TWO calls to `setpgid`.
 
-pid_t start_command(command* c, pid_t pgid) {
+pid_t start_command(command* c, pid_t pgid, int fd[]) {
     (void) pgid;
     // Your code here!
     c->pid = fork();
+	if (fd) {
+		// if child
+        if(c->pid == 0) {
+		    close(fd[1]);
+		    dup2(fd[0], 0);
+		    close(fd[0]);
+		    execvp(c->next->argv[0], c->next->argv);
+		}
+		//else if parent
+        else {
+            close(fd[0]);
+            dup2(fd[1], 1);
+            close(fd[1]);
+            execvp(c->argv[0], c->argv);
+        }
+    }
     if (!c->pid)
         execvp(c->argv[0], c->argv);
     return c->pid;
@@ -114,9 +130,41 @@ pid_t start_command(command* c, pid_t pgid) {
 void run_list(command* c) {
 
     pid_t pid = 0;
+	int status;
 
     command* current = c;
     while(current && current->argc) {
+
+		if (current->conditional == TOKEN_PIPE) {
+            current = current->next;
+            continue;
+        }
+
+        // if followed by pipe token
+        if (current->control == TOKEN_PIPE) {
+
+            int fd[2];
+            pid_t cpid;
+
+            if (pipe(fd) == -1) {
+                exit(EXIT_FAILURE);
+            }
+
+            cpid = fork();
+
+            if (cpid == -1) {
+                exit(EXIT_FAILURE);
+            }
+
+            if (!cpid) {
+                current = current->next;
+                start_command(current, 0, fd);
+                exit(EXIT_SUCCESS);
+            }
+
+            current = current->next;
+            continue;
+        }
 
         // start of condition - run in the background
         if (((current->control == TOKEN_AND || (current->control == TOKEN_OR)) && 
@@ -153,15 +201,13 @@ void run_list(command* c) {
 
         }
 
-        int status;
-
         // end of condition
         if ((current->conditional == TOKEN_AND || current->conditional == TOKEN_OR) 
             && current->control != TOKEN_AND && current->control != TOKEN_OR) {
 
             // end child
             if (!pid) {
-                start_command(current, 0);
+                start_command(current, 0, NULL);
                 waitpid(current->pid, &status, 0);
                 exit(EXIT_SUCCESS);
             }
@@ -177,7 +223,7 @@ void run_list(command* c) {
         }      
     
 
-        start_command(current, 0);
+        start_command(current, 0, NULL);
         if (current->control != TOKEN_BACKGROUND) {
             waitpid(current->pid, &status, 0);            
             if (current->next)
