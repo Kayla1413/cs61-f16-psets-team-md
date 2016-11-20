@@ -22,6 +22,7 @@ struct command {
     int control;  // control operator
     int conditional;  // conditional operator, NULL if none
     int prev_status;    // status of previous process, NULL if not set
+	char* redirect_token; // redirect token 
 };
 
 
@@ -37,6 +38,7 @@ static command* command_alloc(void) {
     c->control = -1;
     c->conditional = -1;
     c->prev_status = 0;
+	c->redirect_token = NULL;
     return c;
 }
 
@@ -114,6 +116,69 @@ void run_list(command* c) {
 
     command* current = c;
     while(current && current->argc) {
+		
+		// Part 7: redirects
+		if (current->control == TOKEN_REDIRECTION) {
+			// count the redirects
+			int num_redirects = 0;
+			command* cur = current;
+			while (cur && cur->control == TOKEN_REDIRECTION) {
+				num_redirects++;
+				cur = cur->next;
+			} 
+
+    		int fd[num_redirects];
+    		pid_t cpid;
+    		cpid = fork();
+
+    		if (!cpid) {
+    			command* cmd = current;
+				for (int i = 0; i < num_redirects; i++) {
+					current = current->next;
+
+					if (!current || !current->argv[0])
+						exit(EXIT_FAILURE);
+
+					fd[i] = open(current->argv[0], O_RDWR | O_CREAT, 0666);
+					if (fd[i] == -1) {
+						printf("File not found\n");
+						exit(EXIT_FAILURE);
+					}
+
+					// Redirect STDIN
+					if (!strcmp(current->redirect_token, "<")) {
+						dup2(fd[i], STDIN_FILENO);
+					}
+					// Redirect STDOUT
+					else if (!strcmp(current->redirect_token, ">")) {
+						dup2(fd[i], STDOUT_FILENO);
+					}
+					// Reidrect STDERR
+					else if (!strcmp(current->redirect_token, "2>")) {
+						dup2(fd[i], STDERR_FILENO);
+					}
+
+					close(fd[i]);
+    			}
+
+    			execvp(cmd->argv[0], cmd->argv);
+    		}
+
+    		// go to next parent command
+    		for (int i = 0; i < num_redirects; i++) {
+    			current = current->next;
+    		}
+
+	        if (current && current->control != TOKEN_BACKGROUND) {
+	            waitpid(current->pid, &status, 0);          
+	            if (current->next) {
+	                current->next->prev_status = status;
+	            }
+	        }
+
+	        current = current->next;
+	        continue;
+    	}
 
         // If the command is followed by a pipe token
         if (current->control == TOKEN_PIPE) {
@@ -271,6 +336,9 @@ void eval_line(const char* s) {
             
             // Set previous operator for the next command
             current->conditional = type;
+			if (type == TOKEN_REDIRECTION) {
+            	current->redirect_token = token;
+            }
         }
         else 
             command_append_arg(current, token);
