@@ -8,6 +8,10 @@
 
 typedef enum {false, true} bool;
 
+// Part 3: Command lists
+//    Updated command struct as linked list. Other functions throughout
+//    shell code leverage this to traverse command lists (eval, run, etc.)
+
 // struct command
 //    Data structure describing a command. Add your own stuff.
 
@@ -128,206 +132,196 @@ void run_list(command* c) {
 	    }
 	}
 
-		// Part 7: redirects
-		if (current->control == TOKEN_REDIRECTION) {
-			// count the redirects
-			int num_redirects = 0;
-			command* cur = current;
-			while (cur && cur->control == TOKEN_REDIRECTION) {
-				num_redirects++;
-				cur = cur->next;
-			} 
 
-    		int fd[num_redirects];
-    		pid_t cpid;
-    		cpid = fork();
 
-    		if (!cpid) {
-    			command* cmd = current;
-				for (int i = 0; i < num_redirects; i++) {
-					current = current->next;
+	// Part 7: Redirections
+        //    Supports three (3) kinds of redirections so the cmd's file descriptors
+        //    are sent to disk files (< filename, > filename, 2> filename).
+        if (current->control == TOKEN_REDIRECTION) {
+    	    // Counts the total of redirections and creates a file descriptor array.
+	    int num_redirects = 0;
+	    command* cur = current;
+	    while (cur && cur->control == TOKEN_REDIRECTION) {
+	        num_redirects++;
+	        cur = cur->next;
+	    }
+	    int fd[num_redirects];
+    	pid_t cpid;
+    	cpid = fork();
 
-					if (!current || !current->argv[0])
-						exit(EXIT_FAILURE);
-
-					fd[i] = open(current->argv[0], O_RDWR | O_CREAT, 0666);
-					if (fd[i] == -1) {
-						printf("File not found\n");
-						exit(EXIT_FAILURE);
-					}
-
-					// Redirect STDIN
-					if (!strcmp(current->redirect_token, "<")) {
-						dup2(fd[i], STDIN_FILENO);
-					}
-					// Redirect STDOUT
-					else if (!strcmp(current->redirect_token, ">")) {
-						dup2(fd[i], STDOUT_FILENO);
-					}
-					// Reidrect STDERR
-					else if (!strcmp(current->redirect_token, "2>")) {
-						dup2(fd[i], STDERR_FILENO);
-					}
-
-					close(fd[i]);
-    			}
-
-    			execvp(cmd->argv[0], cmd->argv);
-    		}
-
-    		// go to next parent command
-    		for (int i = 0; i < num_redirects; i++) {
-    			current = current->next;
-    		}
-
-	        if (current && current->control != TOKEN_BACKGROUND) {
-	            waitpid(current->pid, &status, 0);          
-	            if (current->next) {
-	                current->next->prev_status = status;
-	            }
-	        }
-
-	        current = current->next;
-	        continue;
+	// Determines kind of Redirection and duplicates the file descriptor.
+    	if (!cpid) {
+	    command* cmd = current;
+	    for (int i = 0; i < num_redirects; i++) {
+		current = current->next;
+		if (!current || !current->argv[0])
+		    exit(EXIT_FAILURE);
+		fd[i] = open(current->argv[0], O_RDWR | O_CREAT, 0666);
+		if (fd[i] == -1) {
+		    printf("File does not exist.\n");
+		    exit(EXIT_FAILURE);
+		}
+		// First kind of Redirection '<', standard input.
+		if (!strcmp(current->redirect_token, "<")) {
+		    dup2(fd[i], STDIN_FILENO);
+		}
+		// Second kind of Redirection '>', standard output.
+		else if (!strcmp(current->redirect_token, ">")) {
+		    dup2(fd[i], STDOUT_FILENO);
+		}
+		// Third kind of Redirection '2>', standard error. 
+		else if (!strcmp(current->redirect_token, "2>")) {
+		    dup2(fd[i], STDERR_FILENO);
+		}
+		close(fd[i]);
+	    }
+	    execvp(cmd->argv[0], cmd->argv);
+    	}
+	
+	// Traverse to next command.
+    	for (int i = 0; i < num_redirects; i++) {
+    	    current = current->next;
     	}
 
-        // If the command is followed by a pipe token
-        if (current->control == TOKEN_PIPE) {
+	// Part 2: Background commands
+	//    If the cmd type does not indicate if should run in background,
+	//    wait for changes in the child of the calling process, then update status. 
+	if (current && current->control != TOKEN_BACKGROUND) {
+	    waitpid(current->pid, &status, 0);          
+	    if (current->next) {
+		current->next->prev_status = status;
+	    }
+	}
 
-            // Count pipes
-			int num_pipes = 0;
-			command* cur = current;
-			while (cur && cur->control == TOKEN_PIPE) {
-				num_pipes++;
-				cur = cur->next;
-			} 
-            int fd[2 * num_pipes];
-            pid_t cpid;
+	// Traverse cmd list.
+        current = current->next;
+	continue;
+    }
 
-            // Create pipes
-            for (int i = 0; i < num_pipes; i++) {
-                if (pipe(fd + i*2) == -1) {
-                    perror("pipe");
-                    exit(EXIT_FAILURE);
-                }
+
+
+    // Part 5: Pipelines 
+    //    Supports pipelines, which are chaings of commands linked by |.
+    if (current->control == TOKEN_PIPE) {
+	// Counts totals of Pipes and creates file descriptor array.
+	int num_pipes = 0;
+	command* cur = current;
+	while (cur && cur->control == TOKEN_PIPE) {
+	    num_pipes++;
+	    cur = cur->next;
+	} 
+        int fd[2 * num_pipes];
+        pid_t cpid;
+
+	// Executes Pipe syscall for total count computed above.
+	for (int i = 0; i < num_pipes; i++) {
+	    if (pipe(fd + i*2) == -1) {
+                perror("Failed pipe()");
+                exit(EXIT_FAILURE);
+            }
+	}
+	
+	int cmd_count = 0;
+	
+	// Executes the Pipes.
+	while (current && (!cmd_count || current->conditional == TOKEN_PIPE)) {
+	    cpid = fork();
+            if (cpid == -1) {
+                perror("Failed fork()\n");
+                exit(EXIT_FAILURE);
             }
 
-            int cmd_count = 0;
-
-            // Process the pipe commands
-            while (current && (!cmd_count || current->conditional == TOKEN_PIPE)) {
-                cpid = fork();
-
-                if (cpid == -1) {
-                    perror("fork");
-                    exit(EXIT_FAILURE);
-                }
-
-                // If in child
-                if (!cpid) {
-                    // check if first commmand
-                    if (cmd_count)
-                        dup2(fd[cmd_count - 2], STDIN_FILENO);
-
-                    // check if last command
-                    if (current->next)
-                        dup2(fd[cmd_count + 1], STDOUT_FILENO);
-
-                    // Close file descriptors
-                    for (int i = 0; i < 2*num_pipes; i++) {
-                        close(fd[i]);
-                    }                    
-
-                    execvp(current->argv[0], current->argv);
-                }
-				current->pid = cpid;
-                // go to next command
-                current = current->next;
-                cmd_count += 2;
-            }
-
-            // Close file descriptors
-            for (int i = 0; i < 2*num_pipes; i++) {
-                close(fd[i]);
-            }
-
-            // Wait for all child processes
-            waitpid(cpid, &status, 0);
-
-            // Set the previous status to current status
-             if (current)
-                current->prev_status = status;
-
-            continue;
-        }
-
-
-	// Part 4: Conditionals
-	//    Determines if there are chaings of commands linked by && and/or ||.
-        if (((current->control == TOKEN_AND || (current->control == TOKEN_OR)) && 
-            current->conditional != TOKEN_AND && current->conditional != TOKEN_OR))
-            pid = fork();
-
-        // if in the parent process
-        if (pid && (current->control == TOKEN_AND || current->control == TOKEN_OR)) {
+	    // Child Process
+	    //    Determines if Piped is required, then duplicates the first file
+	    //    descriptor into the second file descriptor, so both can refer to 
+            //    the same object. Closes associated descriptors, then executes.
+            if (!cpid) {
+                if (cmd_count)
+                    dup2(fd[cmd_count - 2], STDIN_FILENO);
+                if (current->next)
+                    dup2(fd[cmd_count + 1], STDOUT_FILENO);
+                for (int i = 0; i < 2*num_pipes; i++) 
+                    close(fd[i]);                
+                execvp(current->argv[0], current->argv);
+	    }
+	
+	    // Traverses cmd list.
+	    current->pid = cpid;
             current = current->next;
-            continue;
+            cmd_count += 2;
+	}
+
+        // Close all associated file descriptors.
+	for (int i = 0; i < 2*num_pipes; i++) {
+            close(fd[i]);
         }
 
-        if (!pid) {
+       // Wait for changes in the child of the calling proceses, then update status.
+       waitpid(cpid, &status, 0);
 
-            // set status to previous status
+       // Set the previous status to current status
+       if (current)
+           current->prev_status = status;
+       continue;
+    }
+
+    // Part 4: Conditionals
+    //    Determines if there are chains of commands linked by && and/or ||.
+    if (((current->control == TOKEN_AND || (current->control == TOKEN_OR)) && 
+    current->conditional != TOKEN_AND && current->conditional != TOKEN_OR)) {
+	pid = fork();
+    }
+    
+    // Parent process - Determines if conditionals and then traverses.
+    if (pid && (current->control == TOKEN_AND || current->control == TOKEN_OR)) {
+        current = current->next;
+        continue;
+    }
+ 
+    // Child Process - Updates status and traverses
+    if (!pid) {
             if (current->next)
                 current->next->prev_status = current->prev_status;
-
             if (!WIFEXITED(current->prev_status)) {
                 current = current->next;
                 continue;
             }
-
-            if (current->conditional == TOKEN_AND && WEXITSTATUS(current->prev_status)) {
-                current = current->next;
-                continue;
+            if ((current->conditional == TOKEN_AND && WEXITSTATUS(current->prev_status)) ||
+  	        (current->conditional == TOKEN_OR && !WEXITSTATUS(current->prev_status))){
+                    current = current->next;
+                    continue;
             }
-
-
-            if (current->conditional == TOKEN_OR && !WEXITSTATUS(current->prev_status)) {
-                current = current->next;
-                continue;
-            }
-        }
-		// end of conditional
-        if ((current->conditional == TOKEN_AND || current->conditional == TOKEN_OR) 
-            && current->control != TOKEN_AND && current->control != TOKEN_OR) {
-
-            // end if child process
+    }
+	
+    // Determine if end of conditionals count.
+    if ((current->conditional == TOKEN_AND || current->conditional == TOKEN_OR) 
+        && current->control != TOKEN_AND && current->control != TOKEN_OR) {       
+	    // Wait for changes in the child of the calling process.
             if (!pid) {
                 start_command(current, 0);
                 waitpid(current->pid, &status, 0);
                 exit(EXIT_SUCCESS);
             }
-
-            // Part 3: Background commands
-	    //    Determines if process should run in background; which allows the shell to
-	    //    continute accepting new cms without waiting for prior cmds to complete.
             if (current->control != TOKEN_BACKGROUND) {           
                 waitpid(pid, &status, 0);
             }
-
             pid = 0;
             current = current->next;
             continue;
-        }      
+    }      
     
+    start_command(current, 0);
 
-        start_command(current, 0);
-        if (current->control != TOKEN_BACKGROUND) {
-            waitpid(current->pid, &status, 0);            
-            if (current->next)
-                current->next->prev_status = status;
-        }
-
-        current = current->next;
+    // Part 2: Background commands
+    //    If the current cmd type does not indicate it should run in background,
+    //    wait for changes in the child of the calling process.
+    if (current->control != TOKEN_BACKGROUND) {
+	waitpid(current->pid, &status, 0);            
+        if (current->next)
+	    current->next->prev_status = status;
+    }
+    current = current->next;
+    
     }
 }
 
@@ -359,11 +353,11 @@ void eval_line(const char* s) {
 	}
     }
 
-    // Run list of evaluated cmds.
+    // Runs list of evaluated cmds.
     if (c->argc)
         run_list(c);
     
-    // Free all dynamic memory used by cmds.    
+    // Frees all dynamic memory used by cmds.    
     while (current) {
         command* next = current->next;
         command_free(current);
@@ -430,19 +424,15 @@ int main(int argc, char* argv[]) {
             needprompt = 1;
         }
 
-        // Handle zombie processes and/or interrupt requests
-        // Your code here!
-
-		// Part 6
-		int status;
+	// Part 6: Zombie processes
+        //    Reaps all zombies processes using waipid()
+	int status;
         int pid = 1;
-
         while (pid != -1 && pid != 0) {
-            pid = waitpid(-1, &status, WNOHANG);
+	    pid = waitpid(-1, &status, WNOHANG);
         }
 		
     }
-
     return 0;
 }
 
