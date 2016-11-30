@@ -11,12 +11,16 @@
 #include <assert.h>
 #include <pthread.h>
 #include "serverinfo.h"
+#include <math.h> 
 
 static const char* pong_host = PONG_HOST;
 static const char* pong_port = PONG_PORT;
 static const char* pong_user = PONG_USER;
 static struct addrinfo* pong_addr;
 
+// pow()
+//    Returns x raised to the power of y.
+double pow(double x, double y);
 
 // TIME HELPERS
 double elapsed_base = 0;
@@ -251,6 +255,24 @@ void* pong_thread(void* threadarg) {
     http_connection* conn = http_connect(pong_addr);
     http_send_request(conn, url);
     http_receive_response_headers(conn);
+    
+    /* Phase 1: Loss
+	- Detects lost messages by checking the connection state and status for failures. 
+	- Then tries to reconnect after some time (exponential backoff) 
+    */
+    int failed_conns_count = 0;
+    while (conn->state == HTTP_BROKEN || conn->status_code == -1) { 
+	++failed_conns_count;
+	http_close(conn);
+	if (failed_conns_count == 1)
+	    sleep(0.01);
+	else
+	    sleep((pow(2, failed_conns_count))* 0.01);
+	conn = http_connect(pong_addr);
+	http_send_request(conn, url);
+	http_receive_response_headers(conn);
+    }
+   
     if (conn->status_code != 200)
         fprintf(stderr, "%.3f sec: warning: %d,%d: "
                 "server returned status %d (expected 200)\n",
