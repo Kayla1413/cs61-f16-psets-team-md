@@ -247,7 +247,7 @@ void* pong_thread(void* threadarg) {
 
     // Copy thread arguments onto our stack.
     pong_args pa = *((pong_args*) threadarg);
-
+   
     char url[256];
     snprintf(url, sizeof(url), "move?x=%d&y=%d&style=on",
              pa.x, pa.y);
@@ -277,6 +277,12 @@ void* pong_thread(void* threadarg) {
         fprintf(stderr, "%.3f sec: warning: %d,%d: "
                 "server returned status %d (expected 200)\n",
                 elapsed(), pa.x, pa.y, conn->status_code);
+    
+    /* Phase 2: Delay 
+	- repositioned when the main thread is triggered to continue and
+	  spawn another thread...so that it happens before waiting for the body response.
+    */
+    pthread_cond_signal(&condvar);
 
     http_receive_response_body(conn);
     double result = strtod(conn->buf, NULL);
@@ -288,8 +294,6 @@ void* pong_thread(void* threadarg) {
 
     http_close(conn);
 
-    // signal the main thread to continue
-    pthread_cond_signal(&condvar);
     // and exit!
     pthread_exit(NULL);
 }
