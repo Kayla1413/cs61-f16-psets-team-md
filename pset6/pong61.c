@@ -242,6 +242,7 @@ typedef struct pong_args {
 } pong_args;
 
 static int n_connection_threads;
+static int n_conns;
 pthread_mutex_t mutex;
 pthread_cond_t condvar;
 
@@ -260,24 +261,35 @@ void* pong_thread(void* threadarg) {
     char url[256];
     snprintf(url, sizeof(url), "move?x=%d&y=%d&style=on",
              pa.x, pa.y);
-
     http_connection* conn;
-/*
-    for (int c=0; c<MAX_CONNS; c++) {
-	if (connection_table[c]->state == HTTP_DONE) {
-		conn  == connection_table[c];
-		printf("recycle conn");
+
+    if (n_conns < MAX_CONNS) {
+	conn = http_connect(pong_addr);
+	if(conn->state != HTTP_BROKEN && conn->status_code != -1) {
+	    pthread_mutex_lock(&mutex);
+	    ++n_conns;
+	    for(int c=0; c<MAX_CONNS; c++) {
+	        if(connection_table[c] == NULL) {
+		    connection_table[c] = conn;
+		    break;
+		}
+	    }
+	    pthread_mutex_unlock(&mutex);
+	    printf("# of Connections Runnings is  %i\n", n_conns);
+    	}
+    } else {
+	for (int c=0; c<MAX_CONNS;c++) {
+	    pthread_mutex_lock(&mutex);
+	    if(connection_table[c]->state == HTTP_DONE) {
+		conn = connection_table[c];
 		break;
+	    }
+	    pthread_mutex_unlock(&mutex);
+	    printf("Recycled Available Connection.\n");
+	    printf("# of Connections Running is %i\n", n_conns);
 	}
     }
-
-    if (conn == NULL) {
-        conn = http_connect(pong_addr);
-	printf("new con");
-    }
-
-*/
-    conn = http_connect(pong_addr);
+    
     http_send_request(conn, url);
     http_receive_response_headers(conn);
     
@@ -289,23 +301,15 @@ void* pong_thread(void* threadarg) {
     while (conn->state == HTTP_BROKEN || conn->status_code == -1) { 
 	++failed_conns_count;
 	http_close(conn);
+	printf("Closed 1 Connection. \n");
+	
 	if (failed_conns_count == 1)
 	    sleep(0.01);
 	else
 	    sleep((pow(2, failed_conns_count))* 0.01);
-/*
-	for (int c=0; c<MAX_CONNS; c++) {
-            if (connection_table[c]->state == HTTP_DONE) {
-		pthread_mutex_lock(&mutex);
-		conn  == connection_table[c];
-		pthread_mutex_unlock(&mutex);
-                break;
-	    }
-        }
-        if (conn == NULL)
-*/
-	    conn = http_connect(pong_addr);
-	
+
+	conn = http_connect(pong_addr);
+	printf("Connection Broke. Retrying... \n");
 	http_send_request(conn, url);
 	http_receive_response_headers(conn);
     }
@@ -314,9 +318,10 @@ void* pong_thread(void* threadarg) {
          - repositioned when the main thread is triggered to continue and
            spawn another thread...so that it happens before waiting for the body response.
     */
-    if (n_connection_threads < MAX_CONNS)
-        pthread_cond_signal(&condvar);
-   
+    if (n_connection_threads < MAX_CONNS) { 
+	pthread_cond_signal(&condvar);
+    }
+
     if (conn->status_code != 200)
         fprintf(stderr, "%.3f sec: warning: %d,%d: "
                 "server returned status %d (expected 200)\n",
@@ -329,24 +334,15 @@ void* pong_thread(void* threadarg) {
                 elapsed(), http_truncate_response(conn));
         exit(1);
     }
-/*
-    if (conn->state == HTTP_DONE) {
-	for (int c=0; c < MAX_CONNS; c++) {
-	    if(connection_table[c] == NULL) {
-		pthread_mutex_lock(&mutex);
-		connection_table[c] == conn;
-		pthread_mutex_unlock(&mutex);
-		break;
-	    }
-	}
-    }
-*/
-    http_close(conn);    
-
+    
+    http_close(conn); 
+    --n_conns;   
+   
+    printf("Closed 1 Connection. \n");
     pthread_mutex_lock(&mutex);
     --n_connection_threads;
     pthread_mutex_unlock(&mutex);
-
+    
     // and exit! 
     pthread_exit(NULL);
 }
