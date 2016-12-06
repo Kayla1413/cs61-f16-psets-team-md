@@ -58,6 +58,11 @@ struct http_connection {
     size_t len;             // Length of response buffer
 };
 
+#define MAX_CONNS 30
+
+// connection_table
+http_connection* connection_table[MAX_CONNS];
+
 // `http_connection::state` constants
 #define HTTP_REQUEST 0      // Request not sent yet
 #define HTTP_INITIAL 1      // Before first line of response
@@ -236,6 +241,7 @@ typedef struct pong_args {
     int y;
 } pong_args;
 
+static int n_connection_threads;
 pthread_mutex_t mutex;
 pthread_cond_t condvar;
 
@@ -243,8 +249,11 @@ pthread_cond_t condvar;
 //    Connect to the server at the position indicated by `threadarg`
 //    (which is a pointer to a `pong_args` structure).
 void* pong_thread(void* threadarg) {
+    pthread_mutex_lock(&mutex);
+    ++n_connection_threads;
+    pthread_mutex_unlock(&mutex);
     pthread_detach(pthread_self());
-
+   
     // Copy thread arguments onto our stack.
     pong_args pa = *((pong_args*) threadarg);
    
@@ -252,7 +261,23 @@ void* pong_thread(void* threadarg) {
     snprintf(url, sizeof(url), "move?x=%d&y=%d&style=on",
              pa.x, pa.y);
 
-    http_connection* conn = http_connect(pong_addr);
+    http_connection* conn;
+/*
+    for (int c=0; c<MAX_CONNS; c++) {
+	if (connection_table[c]->state == HTTP_DONE) {
+		conn  == connection_table[c];
+		printf("recycle conn");
+		break;
+	}
+    }
+
+    if (conn == NULL) {
+        conn = http_connect(pong_addr);
+	printf("new con");
+    }
+
+*/
+    conn = http_connect(pong_addr);
     http_send_request(conn, url);
     http_receive_response_headers(conn);
     
@@ -268,22 +293,35 @@ void* pong_thread(void* threadarg) {
 	    sleep(0.01);
 	else
 	    sleep((pow(2, failed_conns_count))* 0.01);
-	conn = http_connect(pong_addr);
+/*
+	for (int c=0; c<MAX_CONNS; c++) {
+            if (connection_table[c]->state == HTTP_DONE) {
+		pthread_mutex_lock(&mutex);
+		conn  == connection_table[c];
+		pthread_mutex_unlock(&mutex);
+                break;
+	    }
+        }
+        if (conn == NULL)
+*/
+	    conn = http_connect(pong_addr);
+	
 	http_send_request(conn, url);
 	http_receive_response_headers(conn);
     }
+   
+    /* Phase 2: Delay 
+         - repositioned when the main thread is triggered to continue and
+           spawn another thread...so that it happens before waiting for the body response.
+    */
+    if (n_connection_threads < MAX_CONNS)
+        pthread_cond_signal(&condvar);
    
     if (conn->status_code != 200)
         fprintf(stderr, "%.3f sec: warning: %d,%d: "
                 "server returned status %d (expected 200)\n",
                 elapsed(), pa.x, pa.y, conn->status_code);
     
-    /* Phase 2: Delay 
-	- repositioned when the main thread is triggered to continue and
-	  spawn another thread...so that it happens before waiting for the body response.
-    */
-    pthread_cond_signal(&condvar);
-
     http_receive_response_body(conn);
     double result = strtod(conn->buf, NULL);
     if (result < 0) {
@@ -291,10 +329,25 @@ void* pong_thread(void* threadarg) {
                 elapsed(), http_truncate_response(conn));
         exit(1);
     }
+/*
+    if (conn->state == HTTP_DONE) {
+	for (int c=0; c < MAX_CONNS; c++) {
+	    if(connection_table[c] == NULL) {
+		pthread_mutex_lock(&mutex);
+		connection_table[c] == conn;
+		pthread_mutex_unlock(&mutex);
+		break;
+	    }
+	}
+    }
+*/
+    http_close(conn);    
 
-    http_close(conn);
+    pthread_mutex_lock(&mutex);
+    --n_connection_threads;
+    pthread_mutex_unlock(&mutex);
 
-    // and exit!
+    // and exit! 
     pthread_exit(NULL);
 }
 
