@@ -61,7 +61,7 @@ struct http_connection {
     size_t len;             // Length of response buffer
 };
 
-// P3
+// http_connection table
 http_connection** connection_table;
 
 // `http_connection::state` constants
@@ -235,8 +235,8 @@ char* http_truncate_response(http_connection* conn) {
 }
 
 // P3
-//add a connection from table
-int addition_conn(http_connection* conn) {
+
+int add_conn(http_connection* conn) {
 	for(unsigned int i =0; i < concurrent_conns; i++) {
 	    if(connection_table[i] == conn)
 		return 0;
@@ -251,9 +251,17 @@ int addition_conn(http_connection* conn) {
 }
 
 //give available connection
-http_connection* available_conn(){
+http_connection* available_conn(const struct addrinfo* ai){
 	for(unsigned int i = 0; i < concurrent_conns; i++) {
 	    if(connection_table[i] != NULL && connection_table[i]->state == HTTP_DONE) {
+		int r = connect(fd, ai->ai_addr, ai->ai_addrlen);
+		if (r < 0) {
+		    perror("connect");
+         	    exit(1);
+     		}
+		connection_table[i]->fd = fd;
+      		connection_table[i]->state = HTTP_REQUEST;
+       		connection_table[i]->eof = 0;
 		return connection_table[i];
 	    }
 	}
@@ -271,11 +279,6 @@ int remove_conn(http_connection* conn) {
 	}
 	return -1;
 }
-
-//serviceservice4 - shows making things conurrent with threads
-// service server 5 - to cap the count of connections
-// this is the answer for phase 2 - handle race conditions
-
 
 // MAIN PROGRAM
 
@@ -304,7 +307,11 @@ void* pong_thread(void* threadarg) {
 // http_connect - creates a new connection
 // need a way to use the pong_addr if the connect is available
 
-    http_connection* conn = http_connect(pong_addr);
+    http_connection* conn = available_conn(pong_addr);
+    if(conn == NULL)
+	conn = http_connect(pong_addr);
+    else
+	remove_conn(conn);
     http_send_request(conn, url);
     http_receive_response_headers(conn);
     
@@ -320,9 +327,13 @@ void* pong_thread(void* threadarg) {
 	    sleep(0.01);
 	else
 	    sleep((pow(2, failed_conns_count))* 0.01);
-// http_connect creates new connection
 
-	conn = http_connect(pong_addr);
+
+	conn = available_conn(pong_addr);
+	if(conn == NULL)
+	    conn = http_connect(pong_addr);
+	else
+	    remove_conn(conn);
 	http_send_request(conn, url);
 	http_receive_response_headers(conn);
     }
@@ -347,7 +358,7 @@ void* pong_thread(void* threadarg) {
     }
 
     http_close(conn);
-
+    add_conn(conn);
     // and exit!
     pthread_exit(NULL);
 }
