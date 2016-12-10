@@ -22,6 +22,10 @@ static struct addrinfo* pong_addr;
 //    Returns x raised to the power of y.
 double pow(double x, double y);
 
+// MIN()
+//    Determines minimum and returns it
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+
 // TIME HELPERS
 double elapsed_base = 0;
 
@@ -56,14 +60,8 @@ struct http_connection {
 
     char buf[BUFSIZ];       // Response buffer
     size_t len;             // Length of response buffer
-
-    int id;		    // Identifer
 };
 
-#define MAX_CONNS 30
-
-// connection_table
-http_connection* connection_table[MAX_CONNS];
 
 // `http_connection::state` constants
 #define HTTP_REQUEST 0      // Request not sent yet
@@ -244,9 +242,11 @@ typedef struct pong_args {
 } pong_args;
 
 static int n_connection_threads;
-static int n_conns;
 pthread_mutex_t mutex;
 pthread_cond_t condvar;
+#define MAX_CONNS 30
+http_connection *connection_table[MAX_CONNS] = {NULL};
+
 
 // pong_thread(threadarg)
 //    Connect to the server at the position indicated by `threadarg`
@@ -255,9 +255,9 @@ void* pong_thread(void* threadarg) {
     pthread_mutex_lock(&mutex);
     ++n_connection_threads;
     pthread_mutex_unlock(&mutex);
-
+    
     pthread_detach(pthread_self());
-   
+ 
     // Copy thread arguments onto our stack.
     pong_args pa = *((pong_args*) threadarg);
    
@@ -265,38 +265,18 @@ void* pong_thread(void* threadarg) {
     snprintf(url, sizeof(url), "move?x=%d&y=%d&style=on",
              pa.x, pa.y);
 
-    http_connection* conn;
-
-    // Phase 3: Utilization 
-    //    - uses a connection_table so once 30 new connections are made, 
-    //      connections are reused to handle requests.
-    if (n_conns < MAX_CONNS) {
-	conn = http_connect(pong_addr);
-	if(conn->state != HTTP_BROKEN && conn->status_code != -1) {
-	    pthread_mutex_lock(&mutex);
-	    ++n_conns;
-	    connection_table[n_conns] = conn;
-	    
-	    pthread_mutex_unlock(&mutex);
-	    conn->id = rand();
-	    sleep(0.5);
-	    printf("Connection id: %i is running\n", connection_table[n_conns]->id);
-	    printf("# of Connections Runnings is  %i\n", n_conns);
-    	}
-    } else {
-	for (int c=0; c<MAX_CONNS;c++) {
-	    pthread_mutex_lock(&mutex);
-	    if (connection_table[c] != NULL)
-		if(connection_table[c]->state == HTTP_DONE) {
-		    conn = connection_table[c];
-		    printf("Allocated available connection.\n");
-	        }
-	    
-	    pthread_mutex_unlock(&mutex);
-	    printf("Recycled Available Connection.\n");
-	    printf("# of Connections Running is %i\n", n_conns);
+    http_connection* conn = NULL;
+    
+    // Phase 3: Utilization
+    // Check to see if a reusable connection is available
+    for (int i=0; i<30; i++) {
+	if (connection_table[i] == HTTP_DONE) {
+	    conn = connection_table[i];
+	    break;
 	}
     }
+    if (conn == NULL)
+	conn = http_connect(pong_addr);
     
     http_send_request(conn, url);
     http_receive_response_headers(conn);
@@ -309,36 +289,24 @@ void* pong_thread(void* threadarg) {
     while (conn->state == HTTP_BROKEN || conn->status_code == -1) { 
 	++failed_conns_count;
 	http_close(conn);
-	printf("Closed 1 Connection. \n");
+
 	
 	if (failed_conns_count == 1)
 	    sleep(0.01);
-	else 
-	    sleep((pow(2, failed_conns_count))* 0.01);
+	else
+	   sleep(MIN(((pow(2, failed_conns_count))* 0.01), 128));
+
+	conn = http_connect(pong_addr);
 	
-	if (n_conns < MAX_CONNS) {
-	    conn = http_connect(pong_addr);
-	    connection_table[n_conns] = conn;
-	} else {
-	    for (int c=0; c<MAX_CONNS; c++) { 
-	        if (connection_table[c] != NULL)
-		    if(connection_table[c]->state == HTTP_DONE)
-	                conn = connection_table[c];
-	    }
-	}
-
-
-	printf("Connection Broke. Retrying... \n");
 	http_send_request(conn, url);
 	http_receive_response_headers(conn);
-    }
+    }   
    
     /* Phase 2: Delay 
          - repositioned when the main thread is triggered to continue and
            spawn another thread...so that it happens before waiting for the body response.
-    	 - used 'n_connection_threads' variables to assure wouldn't exceed 30 threads
     */
-    if (n_connection_threads < MAX_CONNS) { 
+    if (n_connection_threads < 30) { 
 	pthread_cond_signal(&condvar);
     }
 
@@ -355,6 +323,20 @@ void* pong_thread(void* threadarg) {
         exit(1);
     }
     
+    // Phase: 3 Utilization
+    //    - inserts current connection in table is possible
+    //    - MUST DO - close connections that haven't been added to the table.
+    //    - MUST DO - add mutex to the table, it's shared
+    //    - MUST DO for failed cases must connection_table
+    //    - MUST DO - add delay for other cases.
+    for (int i=0; i<30; i++) {
+	if (connection_table[i] == NULL && conn->state == HTTP_DONE) {
+	    connection_table[i] = conn;
+            break;
+        } 
+    }
+
+    http_close(conn); 
     pthread_mutex_lock(&mutex);
     --n_connection_threads;
     pthread_mutex_unlock(&mutex);
@@ -433,7 +415,7 @@ int main(int argc, char** argv) {
 
     // initialize global synchronization objects
     pthread_mutex_init(&mutex, NULL);
-    pthread_cond_init(&condvar, NULL);
+    pthread_cond_init(&condvar, NULL);    
 
     // play game
     int x = 0, y = 0, dx = 1, dy = 1;
@@ -448,7 +430,7 @@ int main(int argc, char** argv) {
             fprintf(stderr, "%.3f sec: pthread_create: %s\n",
                     elapsed(), strerror(r));
             exit(1);
-        }	
+        }
 
         // wait until that thread signals us to continue
         pthread_mutex_lock(&mutex);
