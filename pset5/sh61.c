@@ -25,8 +25,8 @@ struct command {
 };
 
 // signal handler
-void handler(int sig) {
-    (void) sig;
+void signal_handler(int signal) {
+    (void) signal;
     printf("\nsh61[%d]$ ", getpid());
     fflush(stdout);
 }
@@ -127,11 +127,6 @@ void run_list(command* c) {
 	// if the last command was ctrl-c interrupt signal
         if ((WIFSIGNALED(status) != 0) && (WTERMSIG(status) == SIGINT))
             break;
-	// Part 9: The cd command 
-	//    Shell supports the cd directory command:
-	//    If 'cd' is the 1st provided argument, updates exit status,
-	//    and then uses 'chdir' system call to change current working 
-	//    directory of the calling process to the directory specified in path.
 	
 	// Part 7: Redirections
         //    Supports three (3) kinds of redirections so the cmd's file descriptors
@@ -198,7 +193,6 @@ void run_list(command* c) {
 					cur2 = cur2->next;
 				} 
 				int fd2[2 * num_pipes];
-				pid_t cpid;
 
 				// Executes Pipe syscall for total count computed above.
 				for (int i = 0; i < num_pipes; i++) {
@@ -254,6 +248,12 @@ void run_list(command* c) {
 			   	continue;
 			}
 
+			// Part 9: The cd command 
+			//    Shell supports the cd directory command:
+			//    If 'cd' is the 1st provided argument, updates exit status,
+			//    and then uses 'chdir' system call to change current working 
+			//    directory of the calling process to the directory specified in path.
+
 			if (!strcmp(current->argv[0], "cd")) {
 				if(chdir(current->argv[1])) {
 					perror(strerror(errno));
@@ -275,7 +275,6 @@ void run_list(command* c) {
 	
 		if (current->control == TOKEN_PIPE) {
 			int num_pipes = 0;
-			command* cur = current;
 			while (cur && cur->control == TOKEN_PIPE) {
 				num_pipes++;
 				cur = cur->next;
@@ -504,7 +503,7 @@ int main(int argc, char* argv[]) {
     //   into the foreground
     set_foreground(0);
     handle_signal(SIGTTOU, SIG_IGN);
-	signal(SIGINT, handler);
+	signal(SIGINT, signal_handler);
 
     char buf[BUFSIZ];
     int bufpos = 0;
