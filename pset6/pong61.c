@@ -23,7 +23,7 @@ static struct addrinfo* pong_addr;
 double pow(double x, double y);
 
 // MIN()
-//    Determines minimum and returns it
+//    Determines minimum values and returns
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 // TIME HELPERS
@@ -182,6 +182,16 @@ void http_receive_response_headers(http_connection* conn) {
             exit(1);
         } else if (nr != -1)
             conn->len += nr;
+	// Phase 5: Evil
+	//    GDB showed Phase 5 terminated with signal SIGSEGV meaning
+	//    invalid memory is being accessed. It is because the 
+	//    received response header size isn't limited. The code 
+	//    snippet below limits it.	
+	if (conn->len > 500) {
+	    conn->state = HTTP_BROKEN;
+	    conn->status_code = -1;
+	    break;
+	}
     }
 
     // Status codes >= 500 mean we are overloading the server
@@ -234,6 +244,70 @@ char* http_truncate_response(http_connection* conn) {
 }
 
 
+// Phase 3: Utilization 
+//    Connection table of availale connections
+//    Primitive Used is "conn_table_mutex"
+//        - It is locked and unlock (before and after), the
+//	    connection table is accessed by the threads.
+typedef struct connection_node connection_node;
+struct connection_node {
+    http_connection *conn;
+    connection_node *next;
+};
+connection_node* connection_table = NULL;
+pthread_mutex_t conn_table_mutex;
+
+// persistent_connect()
+//    Instead of opening and closing new connections, persistent_connect
+//    is used so that whenever an HTTP_REQUEST has completed, the connection
+//    can be reused for another request. 
+
+
+http_connection *persistent_connect(void) {
+    pthread_mutex_lock(&conn_table_mutex);
+    connection_node *prev = NULL;
+    connection_node *node = connection_table;
+    // Phase 1 - Additional check
+    while (node != NULL) {
+	if (node->conn->state != HTTP_DONE) {	
+	    if (node->conn->state == HTTP_BROKEN) {
+		http_close(node->conn);
+		node->conn = http_connect(pong_addr);
+	    }
+	    node =  node->next;
+	} else {
+	    break;
+	}	
+    }
+    if (node == NULL) {
+	node = (connection_node *) malloc(sizeof(connection_node));
+	node->conn = http_connect(pong_addr);
+	node->next = NULL;
+	if(prev != NULL) {
+	    prev->next = node;
+	} else {
+	    connection_table = node;
+	}
+    }
+    pthread_mutex_unlock(&conn_table_mutex);
+    return node->conn;
+}
+
+
+// Phase 4: Congestion
+//    When the server is overloaded, cool_down_period() will give the 
+//    server enough time to cool down by temporarily halting 
+//    messages being sent. 
+
+pthread_mutex_t congestion_mutex;
+void cool_down_period(int cooling_time) {
+    pthread_mutex_lock(&congestion_mutex);
+    if (cooling_time > -1)
+	usleep(cooling_time*1000);
+    pthread_mutex_unlock(&congestion_mutex);
+}
+
+
 // MAIN PROGRAM
 
 typedef struct pong_args {
@@ -241,21 +315,15 @@ typedef struct pong_args {
     int y;
 } pong_args;
 
-static int n_connection_threads;
 pthread_mutex_t mutex;
 pthread_cond_t condvar;
-#define MAX_CONNS 30
-http_connection *connection_table[MAX_CONNS] = {NULL};
 
 
 // pong_thread(threadarg)
 //    Connect to the server at the position indicated by `threadarg`
 //    (which is a pointer to a `pong_args` structure).
 void* pong_thread(void* threadarg) {
-    pthread_mutex_lock(&mutex);
-    ++n_connection_threads;
-    pthread_mutex_unlock(&mutex);
-    
+       
     pthread_detach(pthread_self());
  
     // Copy thread arguments onto our stack.
@@ -265,50 +333,38 @@ void* pong_thread(void* threadarg) {
     snprintf(url, sizeof(url), "move?x=%d&y=%d&style=on",
              pa.x, pa.y);
 
-    http_connection* conn = NULL;
-    
-    // Phase 3: Utilization
-    // Check to see if a reusable connection is available
-    for (int i=0; i<30; i++) {
-	if (connection_table[i] == HTTP_DONE) {
-	    conn = connection_table[i];
-	    break;
-	}
-    }
-    if (conn == NULL)
-	conn = http_connect(pong_addr);
-    
+    http_connection* conn = persistent_connect();
+    cool_down_period(-1);
     http_send_request(conn, url);
     http_receive_response_headers(conn);
     
     /* Phase 1: Loss
-	- Detects lost messages by checking the connection state and status for failures. 
-	- Then tries to reconnect after some time (exponential backoff) 
+	Detects lost messages by checking the connection state 
+	and status code. If a connection is broken, waits some 
+	time and then repairs connection. Uses exponential backoff.
     */
     int failed_conns_count = 0;
     while (conn->state == HTTP_BROKEN || conn->status_code == -1) { 
 	++failed_conns_count;
-	http_close(conn);
-
-	
 	if (failed_conns_count == 1)
-	    sleep(0.01);
+	    sleep(0.1);
 	else
-	   sleep(MIN(((pow(2, failed_conns_count))* 0.01), 128));
-
-	conn = http_connect(pong_addr);
-	
-	http_send_request(conn, url);
-	http_receive_response_headers(conn);
+	    sleep(MIN(((pow(2, failed_conns_count))*0.1), 128));
+	conn = persistent_connect();
+	cool_down_period(-1);
+	http_send_request(conn, url);    
+	http_receive_response_headers(conn);    // Checks if still broken
     }   
    
-    /* Phase 2: Delay 
-         - repositioned when the main thread is triggered to continue and
-           spawn another thread...so that it happens before waiting for the body response.
+    /* Phase 2: Delay
+	Repositioned when the thread signals to main to create 
+	a new thread so that it does not wait for the response 
+	body to complete.
+    	    Primitive Used: "mutex"
+	    Mutex was used to lock and unlock (i.e. protect), the 
+	    count of concurrent connections at a given moment.
     */
-    if (n_connection_threads < 30) { 
-	pthread_cond_signal(&condvar);
-    }
+    pthread_cond_signal(&condvar);
 
     if (conn->status_code != 200)
         fprintf(stderr, "%.3f sec: warning: %d,%d: "
@@ -322,26 +378,10 @@ void* pong_thread(void* threadarg) {
                 elapsed(), http_truncate_response(conn));
         exit(1);
     }
-    
-    // Phase: 3 Utilization
-    //    - inserts current connection in table is possible
-    //    - MUST DO - close connections that haven't been added to the table.
-    //    - MUST DO - add mutex to the table, it's shared
-    //    - MUST DO for failed cases must connection_table
-    //    - MUST DO - add delay for other cases.
-    for (int i=0; i<30; i++) {
-	if (connection_table[i] == NULL && conn->state == HTTP_DONE) {
-	    connection_table[i] = conn;
-            break;
-        } 
-    }
+    if(result > 0)
+	cool_down_period((int) result);    
 
-    http_close(conn); 
-    pthread_mutex_lock(&mutex);
-    --n_connection_threads;
-    pthread_mutex_unlock(&mutex);
-    
-    // and exit! 
+    // and exit!
     pthread_exit(NULL);
 }
 
@@ -415,7 +455,9 @@ int main(int argc, char** argv) {
 
     // initialize global synchronization objects
     pthread_mutex_init(&mutex, NULL);
-    pthread_cond_init(&condvar, NULL);    
+    pthread_cond_init(&condvar, NULL); 
+    pthread_mutex_init(&congestion_mutex, NULL);
+    pthread_mutex_init(&conn_table_mutex, NULL);
 
     // play game
     int x = 0, y = 0, dx = 1, dy = 1;
