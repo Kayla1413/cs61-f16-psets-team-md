@@ -174,6 +174,13 @@ void http_receive_response_headers(http_connection* conn) {
     // read & parse data until told `http_process_response_headers`
     // tells us to stop
     while (http_process_response_headers(conn)) {
+	// Phase 5: Evil
+	//    GDB showed Phase 5 terminated with signal SIGSEGV meaning
+	//    invalid memory is being accessed. It is because the 
+	//    received response header size isn't limited. The code 
+	//    snippet below limits it.  
+	if (conn->len != 0)
+		conn->len = 0;
         ssize_t nr = read(conn->fd, &conn->buf[conn->len], BUFSIZ);
         if (nr == 0)
             conn->eof = 1;
@@ -182,16 +189,6 @@ void http_receive_response_headers(http_connection* conn) {
             exit(1);
         } else if (nr != -1)
             conn->len += nr;
-	// Phase 5: Evil
-	//    GDB showed Phase 5 terminated with signal SIGSEGV meaning
-	//    invalid memory is being accessed. It is because the 
-	//    received response header size isn't limited. The code 
-	//    snippet below limits it.	
-	if (conn->len > 500) {
-	    conn->state = HTTP_BROKEN;
-	    conn->status_code = -1;
-	    break;
-	}
     }
 
     // Status codes >= 500 mean we are overloading the server
@@ -275,19 +272,17 @@ http_connection *persistent_connect(void) {
 		node->conn = http_connect(pong_addr);
 	    }
 	    node =  node->next;
-	} else {
-	    break;
-	}	
+	} else 
+	    break;	
     }
     if (node == NULL) {
 	node = (connection_node *) malloc(sizeof(connection_node));
 	node->conn = http_connect(pong_addr);
 	node->next = NULL;
-	if(prev != NULL) {
+	if(prev != NULL)
 	    prev->next = node;
-	} else {
+	else
 	    connection_table = node;
-	}
     }
     pthread_mutex_unlock(&conn_table_mutex);
     return node->conn;
